@@ -14,6 +14,8 @@ App Expo SDK 57 offline-first. Leia o `README.md` para arquitetura e modelo de d
   o NativeWind para 5 junto — são incompatíveis.
 - Nomes de domínio (tipos, funções, campos) em **português**; APIs de terceiros
   ficam como são.
+- Bottom sheets usam `FolhaModal`; o FAB usa `BotaoFlutuante`. Não recrie
+  nenhum dos dois inline.
 
 ## Expo mudou
 

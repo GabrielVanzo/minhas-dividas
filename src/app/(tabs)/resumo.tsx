@@ -1,5 +1,5 @@
 import { useFocusEffect } from 'expo-router';
-import { TrendingDown, TrendingUp, Wallet } from 'lucide-react-native';
+import { PiggyBank, TrendingDown, TrendingUp, Wallet } from 'lucide-react-native';
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,9 +7,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Cores } from '@/constants/theme';
 import { listarDividas } from '@/data/dividasRepository';
 import { definirRenda, obterRenda } from '@/data/rendaRepository';
-import { Divida, TipoDivida, TIPOS_DIVIDA } from '@/data/types';
+import { totalReservado } from '@/data/reservasRepository';
+import { Divida, TIPOS_DIVIDA } from '@/data/types';
 import { ROTULO_TIPO } from '@/domain/divida';
-import { formatarMoeda, parsearValor } from '@/domain/format';
+import { formatarMoeda, formatarValorEditavel, parsearValor } from '@/domain/format';
 import { calcularResumo, incidenciaNoMes, mesCorrente, parcelaDoMes, rotuloMes } from '@/domain/mes';
 
 export default function ResumoScreen() {
@@ -17,6 +18,7 @@ export default function ResumoScreen() {
   const [mes, setMes] = useState(mesCorrente);
   const [dividas, setDividas] = useState<Divida[]>([]);
   const [rendaTexto, setRendaTexto] = useState('');
+  const [reservado, setReservado] = useState(0);
   const [carregando, setCarregando] = useState(true);
 
   useFocusEffect(
@@ -26,11 +28,12 @@ export default function ResumoScreen() {
       const atual = mesCorrente();
       setMes(atual);
 
-      Promise.all([listarDividas(), obterRenda(atual)])
-        .then(([lista, renda]) => {
+      Promise.all([listarDividas(), obterRenda(atual), totalReservado()])
+        .then(([lista, renda, reservas]) => {
           if (!ativo) return;
           setDividas(lista);
           setRendaTexto(renda ? formatarValorEditavel(renda.valor) : '');
+          setReservado(reservas);
         })
         .finally(() => ativo && setCarregando(false));
       return () => {
@@ -140,6 +143,22 @@ export default function ResumoScreen() {
         </View>
       </View>
 
+      {/* Reservado — informativo, de propósito fora da conta do saldo */}
+      {reservado > 0 ? (
+        <View className="mt-3 flex-row items-center gap-3 rounded-card border border-ink-500 bg-ink-700 px-4 py-3.5">
+          <View className="h-9 w-9 items-center justify-center rounded-full bg-ok/10">
+            <PiggyBank size={17} color={Cores.ok} />
+          </View>
+          <View className="flex-1">
+            <Text className="text-[15px] text-mist-100">Guardado em reservas</Text>
+            <Text className="mt-0.5 text-xs text-mist-400">
+              Não entra na conta do saldo acima
+            </Text>
+          </View>
+          <Text className="text-[15px] font-semibold text-ok">{formatarMoeda(reservado)}</Text>
+        </View>
+      ) : null}
+
       {/* Composição por tipo */}
       {resumo.dividasDoMes.length > 0 ? (
         <>
@@ -222,9 +241,4 @@ function Secao({ titulo }: { titulo: string }) {
       {titulo}
     </Text>
   );
-}
-
-/** "1234.5" -> "1.234,50", no formato que o campo aceita de volta. */
-function formatarValorEditavel(valor: number): string {
-  return valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }

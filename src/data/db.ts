@@ -50,6 +50,41 @@ const MIGRATIONS: ((db: SQLite.SQLiteDatabase) => Promise<void>)[] = [
         ON renda_mensal (workspace_id, owner_id, mes_referencia);
     `);
   },
+
+  // Categorias gerenciáveis e preferências locais (nome do usuário, tema).
+  async (db) => {
+    await db.execAsync(`
+      CREATE TABLE categorias (
+        id TEXT PRIMARY KEY NOT NULL,
+        workspace_id TEXT NOT NULL DEFAULT 'local',
+        owner_id TEXT NOT NULL DEFAULT 'me',
+        nome TEXT NOT NULL,
+        criado_em TEXT NOT NULL
+      );
+
+      CREATE UNIQUE INDEX idx_categorias_nome
+        ON categorias (workspace_id, owner_id, nome);
+
+      CREATE TABLE preferencias (
+        workspace_id TEXT NOT NULL DEFAULT 'local',
+        owner_id TEXT NOT NULL DEFAULT 'me',
+        chave TEXT NOT NULL,
+        valor TEXT NOT NULL,
+        PRIMARY KEY (workspace_id, owner_id, chave)
+      );
+    `);
+
+    // Semeia categorias comuns para o app não abrir vazio.
+    // randomblob evita importar um gerador de UUID dentro da migração.
+    for (const nome of ['Moradia', 'Cartão', 'Transporte', 'Saúde', 'Educação', 'Lazer']) {
+      await db.runAsync(
+        `INSERT INTO categorias (id, nome, criado_em)
+         VALUES (lower(hex(randomblob(16))), ?, ?)`,
+        nome,
+        new Date().toISOString(),
+      );
+    }
+  },
 ];
 
 async function openAndMigrate(): Promise<SQLite.SQLiteDatabase> {

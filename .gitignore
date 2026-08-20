@@ -40,4 +40,18 @@ example
 
 # generated native folders
 /ios
-/android
+
+# O /android é versionado de propósito: ele carrega a configuração de
+# assinatura do release. Só os artefatos de build ficam de fora.
+android/build/
+android/app/build/
+android/.gradle/
+android/.cxx/
+android/local.properties
+
+# Chave de assinatura — NUNCA versionar
+android/keystore.properties
+*.keystore
+# A de debug é exceção: como o /android é versionado, sem ela um clone novo
+# não consegue rodar `npm run android`. Ela é pública e igual para todo mundo.
+!android/app/debug.keystore

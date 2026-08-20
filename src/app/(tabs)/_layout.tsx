@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { PieChart, WalletMinimal } from 'lucide-react-native';
+import { PiggyBank, PieChart, Settings, WalletMinimal } from 'lucide-react-native';
 
 import { Cores } from '@/constants/theme';
 
@@ -30,6 +30,20 @@ export default function TabsLayout() {
         options={{
           title: 'Resumo',
           tabBarIcon: ({ color, size }) => <PieChart color={color} size={size - 2} />,
+        }}
+      />
+      <Tabs.Screen
+        name="reservas"
+        options={{
+          title: 'Reservas',
+          tabBarIcon: ({ color, size }) => <PiggyBank color={color} size={size - 2} />,
+        }}
+      />
+      <Tabs.Screen
+        name="config"
+        options={{
+          title: 'Ajustes',
+          tabBarIcon: ({ color, size }) => <Settings color={color} size={size - 2} />,
         }}
       />
     </Tabs>

@@ -1,4 +1,3 @@
-import dayjs from 'dayjs';
 import { useRouter } from 'expo-router';
 import { Trash2 } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
@@ -22,6 +21,7 @@ import {
   SeletorOpcoes,
 } from '@/components/form';
 import { Cores } from '@/constants/theme';
+import { listarCategorias } from '@/data/categoriasRepository';
 import {
   atualizarDivida,
   criarDivida,
@@ -30,7 +30,7 @@ import {
 } from '@/data/dividasRepository';
 import { NovaDivida, TipoDivida } from '@/data/types';
 import { ROTULO_TIPO } from '@/domain/divida';
-import { parsearValor } from '@/domain/format';
+import { formatarValorEditavel, parsearValor } from '@/domain/format';
 
 const OPCOES_TIPO = (['recorrente', 'parcelada', 'pontual'] as TipoDivida[]).map((tipo) => ({
   valor: tipo,
@@ -66,8 +66,13 @@ export function DividaForm({ dividaId }: { dividaId?: string }) {
   const insets = useSafeAreaInsets();
   const [estado, setEstado] = useState<Estado>(ESTADO_INICIAL);
   const [erros, setErros] = useState<Erros>({});
+  const [categorias, setCategorias] = useState<string[]>([]);
   const [carregando, setCarregando] = useState(Boolean(dividaId));
   const [salvando, setSalvando] = useState(false);
+
+  useEffect(() => {
+    listarCategorias().then((lista) => setCategorias(lista.map((c) => c.nome)));
+  }, []);
 
   useEffect(() => {
     if (!dividaId) return;
@@ -77,7 +82,7 @@ export function DividaForm({ dividaId }: { dividaId?: string }) {
         setEstado({
           nome: divida.nome,
           tipo: divida.tipo,
-          valor: String(divida.valor).replace('.', ','),
+          valor: formatarValorEditavel(divida.valor),
           dataVencimento: divida.dataVencimento,
           diaVencimentoRecorrente: divida.diaVencimentoRecorrente?.toString() ?? '',
           parcelaAtual: divida.parcelaAtual?.toString() ?? '1',
@@ -172,6 +177,12 @@ export function DividaForm({ dividaId }: { dividaId?: string }) {
       },
     ]);
   }
+
+  // Mantém visível a categoria já gravada mesmo que tenha sido excluída em Ajustes.
+  const opcoesCategoria =
+    estado.categoria && !categorias.includes(estado.categoria)
+      ? [...categorias, estado.categoria]
+      : categorias;
 
   if (carregando) {
     return (
@@ -275,12 +286,28 @@ export function DividaForm({ dividaId }: { dividaId?: string }) {
           </View>
         ) : null}
 
-        <Campo rotulo="Categoria" dica="Opcional — ajuda a agrupar depois">
-          <EntradaTexto
-            value={estado.categoria}
-            onChangeText={(t) => alterar('categoria', t)}
-            placeholder="Ex.: Moradia, Cartão, Saúde"
-          />
+        <Campo
+          rotulo="Categoria"
+          dica={
+            categorias.length === 0
+              ? 'Nenhuma categoria criada — adicione em Ajustes'
+              : 'Opcional — gerencie a lista em Ajustes'
+          }>
+          <View className="flex-row flex-wrap gap-2">
+            <ChipCategoria
+              rotulo="Nenhuma"
+              ativo={estado.categoria === ''}
+              onPress={() => alterar('categoria', '')}
+            />
+            {opcoesCategoria.map((nome) => (
+              <ChipCategoria
+                key={nome}
+                rotulo={nome}
+                ativo={estado.categoria === nome}
+                onPress={() => alterar('categoria', nome)}
+              />
+            ))}
+          </View>
         </Campo>
 
         <View className="mt-2">
@@ -301,5 +328,27 @@ export function DividaForm({ dividaId }: { dividaId?: string }) {
         ) : null}
       </ScrollView>
     </KeyboardAvoidingView>
+  );
+}
+
+function ChipCategoria({
+  rotulo,
+  ativo,
+  onPress,
+}: {
+  rotulo: string;
+  ativo: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      className={`rounded-full border px-3.5 py-2 active:opacity-70 ${
+        ativo ? 'border-brand-500 bg-brand-500/15' : 'border-ink-500 bg-ink-600'
+      }`}>
+      <Text className={`text-[13px] font-medium ${ativo ? 'text-brand-400' : 'text-mist-300'}`}>
+        {rotulo}
+      </Text>
+    </Pressable>
   );
 }

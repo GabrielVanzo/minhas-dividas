@@ -6,6 +6,7 @@ import {
   statusDivida,
   vencimentoEfetivo,
 } from '@/domain/divida';
+import { formatarValorEditavel, parsearValor } from '@/domain/format';
 import { calcularResumo, incidenciaNoMes, parcelaDoMes, rotuloMes } from '@/domain/mes';
 
 const HOJE = dayjs('2026-08-20').startOf('day');
@@ -140,6 +141,25 @@ eq('mês vazio -> total zero', semRenda.totalDividas, 0);
 eq('mês vazio -> saldo zero', semRenda.saldo, 0);
 
 eq('rótulo do mês em português', rotuloMes('2026-08'), 'Agosto de 2026');
+
+// --- leitura de valor digitado ---
+eq('vírgula decimal', parsearValor('1234,56'), 1234.56);
+eq('ponto de milhar + vírgula decimal', parsearValor('1.234,56'), 1234.56);
+eq('ponto decimal (teclado sem vírgula)', parsearValor('1234.56'), 1234.56);
+eq('ponto decimal com 1 casa', parsearValor('3.7'), 3.7);
+eq('ponto de milhar sozinho', parsearValor('1.500'), 1500);
+eq('milhar múltiplo', parsearValor('1.234.567'), 1234567);
+eq('dez mil com centavos', parsearValor('10.000,00'), 10000);
+eq('inteiro puro', parsearValor('1500'), 1500);
+eq('centavos só', parsearValor('0,50'), 0.5);
+eq('texto vazio -> 0', parsearValor(''), 0);
+eq('lixo -> 0', parsearValor('abc'), 0);
+eq('com símbolo de moeda', parsearValor('R$ 2.500,90'), 2500.9);
+
+// O campo editável precisa voltar a ser lido sem perda.
+for (const valor of [1234.56, 1500, 0.5, 10000, 999999.99]) {
+  eq(`ida e volta ${valor}`, parsearValor(formatarValorEditavel(valor)), valor);
+}
 
 console.log(falhas === 0 ? '\nTODOS OS TESTES PASSARAM' : `\n${falhas} FALHA(S)`);
 process.exit(falhas === 0 ? 0 : 1);

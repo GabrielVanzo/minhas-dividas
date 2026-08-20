@@ -45,7 +45,9 @@ src/
     (tabs)/
       _layout.tsx      barra de abas
       index.tsx        Dívidas — lista com filtro e ordenação
-      resumo.tsx       Resumo do mês — renda, total, saldo
+      resumo.tsx       Resumo do mês — renda, total, saldo, reservado
+      reservas.tsx     Guardadinhos
+      config.tsx       Nome do usuário, categorias, tema
     divida/nova.tsx    cadastro
     divida/[id].tsx    edição
   components/          UI reutilizável (cards, formulário, controles)
@@ -53,7 +55,8 @@ src/
   data/                ÚNICA camada que conhece SQLite
     db.ts              conexão + migrações versionadas
     types.ts           tipos do domínio persistido
-    *Repository.ts     CRUD por entidade
+    *Repository.ts     CRUD por entidade (dívidas, reservas, renda,
+                       categorias, preferências)
   domain/              regras puras, testáveis em Node
     divida.ts          status, vencimento efetivo, ordenação
     mes.ts             incidência mensal e resumo financeiro
@@ -89,9 +92,18 @@ no fim do array** — nunca edite uma migração já instalada em algum celular.
 O repositório zera os campos que não pertencem ao tipo escolhido, então não
 sobra lixo quando o usuário troca o tipo no formulário.
 
-**reservas** — `nome`, `valor`, `finalidade` (opcional).
+**reservas** — `nome`, `valor`, `finalidade` (opcional). O total aparece no
+Resumo como informação e **não** é descontado do saldo — dinheiro guardado não
+é dívida paga.
 
 **renda_mensal** — uma linha por `mes_referencia` (`YYYY-MM`), garantido por índice único.
+
+**categorias** — lista gerenciável em Ajustes, semeada na migração 2 com seis
+categorias comuns. O formulário de dívida escolhe entre elas em vez de texto
+livre. Excluir uma categoria **desassocia** as dívidas que a usavam; nada é
+apagado junto.
+
+**preferencias** — pares chave/valor por workspace (`nome_usuario`, `tema`).
 
 ## Como o mês é calculado
 
@@ -115,4 +127,92 @@ da fatia da renda já comprometida.
 
 ## Gerando o APK
 
-_(Fase 4 — a documentar.)_
+O build é **100% local**. Não usa conta EAS, paga ou gratuita.
+
+### Pré-requisitos (uma vez por máquina)
+
+O Gradle do React Native **não roda em Java 26**. Este projeto usa Temurin 21:
+
+```bash
+mkdir -p ~/.jdks && cd ~/.jdks
+curl -L -o t21.tar.gz "https://api.adoptium.net/v3/binary/latest/21/ga/mac/aarch64/jdk/hotspot/normal/eclipse"
+tar xzf t21.tar.gz && rm t21.tar.gz
+```
+
+Também é preciso o Android SDK em `~/Library/Android/sdk`.
+
+> **O caminho do projeto não pode ter acento.** A pasta se chama
+> `Minhas-Dividas`, sem o `í`, justamente por isso — o Gradle e o CMake
+> tropeçam em caracteres não-ASCII no caminho.
+
+### Gerar um APK novo
+
+```bash
+cd android
+JAVA_HOME=~/.jdks/jdk-21.0.12.1+1/Contents/Home \
+ANDROID_HOME=~/Library/Android/sdk \
+./gradlew assembleRelease
+```
+
+O APK sai em:
+
+```
+android/app/build/outputs/apk/release/app-release.apk
+```
+
+Ele sai com **~44 MB** porque é compilado só para `arm64-v8a` — a arquitetura de
+qualquer Android lançado nos últimos anos. Incluir também `armeabi-v7a` e as
+duas `x86` (que só servem para emulador) levava o arquivo para 114 MB, tamanho
+ruim de mandar por WhatsApp. A lista fica em `reactNativeArchitectures`, no
+`android/gradle.properties`.
+
+### Antes de gerar uma versão nova: suba o `versionCode`
+
+Em `android/app/build.gradle`:
+
+```gradle
+versionCode 1        // incremente a cada APK que você for distribuir
+versionName "1.0.0"  // o que aparece para o usuário
+```
+
+O Android usa o `versionCode` para decidir o que é atualização. Mandando dois
+APKs diferentes com o mesmo número, o aparelho pode recusar a instalação por
+cima — e aí só resta desinstalar, o que **apaga todas as dívidas e reservas**.
+O `version` do `app.json` não controla isso: como o `android/` é versionado e
+não regenerado por `prebuild`, quem manda é o `build.gradle`.
+
+### Instalar no celular
+
+Com o aparelho conectado por USB e depuração ativada:
+
+```bash
+~/Library/Android/sdk/platform-tools/adb install -r \
+  android/app/build/outputs/apk/release/app-release.apk
+```
+
+O `-r` atualiza por cima, preservando os dados. Para os outros celulares, basta
+mandar o arquivo `.apk` por WhatsApp/Drive e abrir no aparelho (é preciso
+permitir "instalar de fontes desconhecidas").
+
+### Assinatura — leia antes de perder o arquivo
+
+O APK é assinado com uma chave própria, não com a de debug. Dois arquivos
+sustentam isso e **nenhum dos dois está no git**:
+
+- `android/app/release.keystore`
+- `android/keystore.properties`
+
+**Faça backup dos dois.** Se você perder qualquer um, o Android passa a tratar
+os APKs novos como um app diferente: não dá para atualizar por cima, só
+desinstalar e reinstalar — e desinstalar **apaga todas as dívidas e reservas**.
+
+Se os arquivos não existirem, o build não quebra: ele cai na chave de debug
+(veja `hasReleaseKeystore` em `android/app/build.gradle`).
+
+### Por que `android/` está versionado
+
+Normalmente essa pasta é descartável e regenerada por `expo prebuild`. Aqui ela
+é versionada porque carrega a configuração de assinatura. A consequência: rodar
+`npx expo prebuild --clean` **sobrescreve** `android/app/build.gradle` e apaga o
+bloco de assinatura. Se precisar fazer isso (ao subir de SDK, por exemplo),
+restaure o bloco com `git diff` depois.

@@ -1,14 +1,16 @@
 import { useFocusEffect, useRouter } from 'expo-router';
-import { Plus, SearchX, WalletMinimal } from 'lucide-react-native';
+import { SearchX, WalletMinimal } from 'lucide-react-native';
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { BotaoFlutuante } from '@/components/BotaoFlutuante';
 import { ControlesLista } from '@/components/ControlesLista';
 import { DividaCard } from '@/components/DividaCard';
 import { EmptyState } from '@/components/EmptyState';
 import { Cores } from '@/constants/theme';
 import { listarDividas } from '@/data/dividasRepository';
+import { obterPreferencia } from '@/data/preferenciasRepository';
 import { Divida, TipoDivida } from '@/data/types';
 import { CampoOrdenacao, estaQuitada, ordenarDividas, statusDivida } from '@/domain/divida';
 import { formatarMoeda } from '@/domain/format';
@@ -20,13 +22,18 @@ export default function DividasScreen() {
   const [carregando, setCarregando] = useState(true);
   const [ordenacao, setOrdenacao] = useState<CampoOrdenacao>('vencimento');
   const [tipos, setTipos] = useState<TipoDivida[]>([]);
+  const [nome, setNome] = useState('');
 
   // Recarrega ao voltar do formulário — mais simples que propagar estado global.
   useFocusEffect(
     useCallback(() => {
       let ativo = true;
-      listarDividas()
-        .then((lista) => ativo && setDividas(lista))
+      Promise.all([listarDividas(), obterPreferencia('nome_usuario')])
+        .then(([lista, nomeSalvo]) => {
+          if (!ativo) return;
+          setDividas(lista);
+          setNome(nomeSalvo ?? '');
+        })
         .finally(() => ativo && setCarregando(false));
       return () => {
         ativo = false;
@@ -79,7 +86,7 @@ export default function DividasScreen() {
           <View>
             <View className="mb-5">
               <Text className="text-[13px] font-medium uppercase tracking-widest text-mist-400">
-                {tipos.length === 0 ? 'Minhas dívidas' : 'Filtrado'}
+                {tipos.length > 0 ? 'Filtrado' : nome ? `Olá, ${nome}` : 'Minhas dívidas'}
               </Text>
 
               <Text className="mt-1 text-3xl font-bold text-mist-100">
@@ -89,7 +96,9 @@ export default function DividasScreen() {
               <Text className="mt-1 text-sm text-mist-300">
                 {resumo.quantidade === 0
                   ? 'Nenhuma dívida em aberto'
-                  : `${resumo.quantidade} em aberto`}
+                  : `Total em aberto · ${resumo.quantidade} dívida${
+                      resumo.quantidade > 1 ? 's' : ''
+                    }`}
                 {resumo.atrasadas > 0
                   ? ` · ${resumo.atrasadas} atrasada${resumo.atrasadas > 1 ? 's' : ''}`
                   : ''}
@@ -135,12 +144,7 @@ export default function DividasScreen() {
         }
       />
 
-      <Pressable
-        onPress={() => router.push('/divida/nova')}
-        style={{ bottom: 24 }}
-        className="absolute right-5 h-14 w-14 items-center justify-center rounded-full bg-brand-500 shadow-lg shadow-black/50 active:opacity-80">
-        <Plus size={26} color="#FFFFFF" strokeWidth={2.5} />
-      </Pressable>
+      <BotaoFlutuante onPress={() => router.push('/divida/nova')} />
     </View>
   );
 }

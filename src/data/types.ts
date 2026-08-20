@@ -62,3 +62,14 @@ export interface RendaMensal {
   mesReferencia: string;
   valor: number;
 }
+
+export interface Categoria {
+  id: string;
+  workspaceId: string;
+  ownerId: string;
+  nome: string;
+  criadoEm: string;
+}
+
+/** Chaves aceitas em `preferencias`. Tema já existe aqui para o dia em que houver light. */
+export type ChavePreferencia = 'nome_usuario' | 'tema';
