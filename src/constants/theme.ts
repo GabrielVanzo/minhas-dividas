@@ -1,65 +1,68 @@
+import { StatusDivida } from '@/domain/divida';
+
 /**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
+ * Espelho em JS da paleta declarada em `tailwind.config.js`.
+ * Use as classes Tailwind na UI; estas constantes são só para APIs
+ * que exigem a cor crua (navegação, StatusBar, props de ícone).
  */
+export const Cores = {
+  fundo: '#0A0B0F',
+  superficie: '#12141A',
+  card: '#191C24',
+  cardElevado: '#222630',
+  borda: '#2E333F',
+  bordaForte: '#3D4351',
 
-import '@/global.css';
+  texto: '#F4F6FB',
+  textoSuave: '#C8CEDC',
+  textoFraco: '#8D96AA',
+  textoApagado: '#646D80',
 
-import { Platform } from 'react-native';
+  marca: '#5B7CFA',
+  marcaClara: '#7C9CFF',
 
-export const Colors = {
-  light: {
-    text: '#000000',
-    background: '#ffffff',
-    backgroundElement: '#F0F0F3',
-    backgroundSelected: '#E0E1E6',
-    textSecondary: '#60646C',
-  },
-  dark: {
-    text: '#ffffff',
-    background: '#000000',
-    backgroundElement: '#212225',
-    backgroundSelected: '#2E3135',
-    textSecondary: '#B0B4BA',
-  },
+  ok: '#37D399',
+  atencao: '#F5B849',
+  perigo: '#FF6B6B',
 } as const;
 
-export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
+interface EstiloStatus {
+  rotulo: string;
+  cor: string;
+  /** Classes Tailwind do chip de status no card. */
+  chipFundo: string;
+  chipTexto: string;
+  /** Faixa vertical colorida na borda esquerda do card. */
+  faixa: string;
+}
 
-export const Fonts = Platform.select({
-  ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
-    sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
-    serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
-    rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
-    mono: 'ui-monospace',
+export const ESTILO_STATUS: Record<StatusDivida, EstiloStatus> = {
+  atrasada: {
+    rotulo: 'Atrasada',
+    cor: Cores.perigo,
+    chipFundo: 'bg-danger/15',
+    chipTexto: 'text-danger',
+    faixa: 'bg-danger',
   },
-  default: {
-    sans: 'normal',
-    serif: 'serif',
-    rounded: 'normal',
-    mono: 'monospace',
+  proxima: {
+    rotulo: 'Próxima',
+    cor: Cores.atencao,
+    chipFundo: 'bg-warn/15',
+    chipTexto: 'text-warn',
+    faixa: 'bg-warn',
   },
-  web: {
-    sans: 'var(--font-display)',
-    serif: 'var(--font-serif)',
-    rounded: 'var(--font-rounded)',
-    mono: 'var(--font-mono)',
+  em_dia: {
+    rotulo: 'Em dia',
+    cor: Cores.ok,
+    chipFundo: 'bg-ok/15',
+    chipTexto: 'text-ok',
+    faixa: 'bg-ok',
   },
-});
-
-export const Spacing = {
-  half: 2,
-  one: 4,
-  two: 8,
-  three: 16,
-  four: 24,
-  five: 32,
-  six: 64,
-} as const;
-
-export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
-export const MaxContentWidth = 800;
+  quitada: {
+    rotulo: 'Quitada',
+    cor: Cores.textoApagado,
+    chipFundo: 'bg-mist-400/15',
+    chipTexto: 'text-mist-400',
+    faixa: 'bg-mist-400',
+  },
+};
