@@ -197,19 +197,16 @@ cima — e aí só resta desinstalar, o que **apaga todas as dívidas e reservas
 O `version` do `app.json` não controla isso: como o `android/` é versionado e
 não regenerado por `prebuild`, quem manda é o `build.gradle`.
 
-### Por que o pacote ainda se chama `minhasdividas`
+### O identificador do app
 
-O app se chama **Quitaê**, mas o `applicationId` continua
-`com.gabrielsantos.minhasdividas` e o banco continua `minhas-dividas.db`.
-Isso é de propósito: para o Android, o `applicationId` **é** a identidade do
-app. Trocá-lo faria o aparelho tratar o Quitaê como um app novo — sem
-atualização por cima, e a versão antiga só sairia desinstalando, o que
-**apaga todas as dívidas e reservas**. O mesmo vale para o nome do arquivo do
-banco: renomeá-lo faria o app abrir um banco vazio.
+O `applicationId` é `com.gabrielsantos.quitae`. Para o Android, ele **é** a
+identidade do app: trocá-lo faz o aparelho enxergar um app diferente — sem
+atualizar por cima, e remover o antigo apaga todos os dados.
 
-Só o nome exibido mudou (`app_name`, `rootProject.name` e o `name` do
-`app.json`). Se um dia o app for para a Play Store, aí sim vale escolher um
-`applicationId` definitivo — mas antes de existir base instalada.
+Ele foi definido antes de existir base instalada, que é a hora certa. A partir
+do momento em que o APK circular entre os celulares da família, considere esse
+valor congelado. O mesmo vale para o nome do arquivo do banco (`quitae.db`):
+renomeá-lo faz o app abrir um banco vazio.
 
 ### Instalar no celular
 

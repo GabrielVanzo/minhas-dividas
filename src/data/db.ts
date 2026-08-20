@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 
-const DB_NAME = 'minhas-dividas.db';
+const DB_NAME = 'quitae.db';
 
 /**
  * Cada entrada é aplicada em ordem e o índice+1 vira o `user_version`.

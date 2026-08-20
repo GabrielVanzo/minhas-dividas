@@ -10,7 +10,7 @@
     "backgroundColor": "#0A0B0F",
     "newArchEnabled": true,
     "android": {
-      "package": "com.gabrielsantos.minhasdividas",
+      "package": "com.gabrielsantos.quitae",
       "adaptiveIcon": {
         "backgroundColor": "#161A23",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -20,7 +20,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.gabrielsantos.minhasdividas"
+      "bundleIdentifier": "com.gabrielsantos.quitae"
     },
     "web": {
       "bundler": "metro",

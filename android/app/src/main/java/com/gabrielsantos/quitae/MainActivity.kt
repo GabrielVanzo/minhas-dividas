@@ -1,4 +1,4 @@
-package com.gabrielsantos.minhasdividas
+package com.gabrielsantos.quitae
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

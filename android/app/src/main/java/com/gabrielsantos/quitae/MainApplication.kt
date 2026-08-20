@@ -1,4 +1,4 @@
-package com.gabrielsantos.minhasdividas
+package com.gabrielsantos.quitae
 
 import android.app.Application
 import android.content.res.Configuration

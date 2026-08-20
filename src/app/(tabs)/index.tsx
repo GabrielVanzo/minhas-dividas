@@ -86,7 +86,7 @@ export default function DividasScreen() {
           <View>
             <View className="mb-5">
               <Text className="text-[13px] font-medium uppercase tracking-widest text-mist-400">
-                {tipos.length > 0 ? 'Filtrado' : nome ? `Olá, ${nome}` : 'Minhas dívidas'}
+                {tipos.length > 0 ? 'Filtrado' : nome ? `Olá, ${nome}` : 'Quitaê'}
               </Text>
 
               <Text className="mt-1 text-3xl font-bold text-mist-100">
