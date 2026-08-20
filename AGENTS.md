@@ -1,4 +1,4 @@
-# Minhas Dívidas — contexto para agentes
+# Quitaê — contexto para agentes
 
 App Expo SDK 57 offline-first. Leia o `README.md` para arquitetura e modelo de dados.
 

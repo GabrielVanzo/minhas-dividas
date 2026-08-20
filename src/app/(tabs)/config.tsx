@@ -1,7 +1,8 @@
+import Constants from 'expo-constants';
 import { useFocusEffect } from 'expo-router';
 import { Check, Moon, Plus, Tag, User, X } from 'lucide-react-native';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FolhaModal } from '@/components/FolhaModal';
@@ -166,6 +167,19 @@ export default function ConfigScreen() {
           </Text>
         </View>
         <Check size={18} color={Cores.marcaClara} />
+      </View>
+
+      {/* Assinatura do app */}
+      <View className="mt-10 items-center gap-2">
+        <Image
+          source={require('../../../assets/images/logo-marca.png')}
+          style={{ width: 44, height: 44 }}
+          resizeMode="contain"
+        />
+        <Text className="text-[15px] font-semibold text-mist-100">Quitaê</Text>
+        <Text className="text-xs text-mist-400">
+          Versão {Constants.expoConfig?.version ?? '1.0.0'} · seus dados ficam só neste aparelho
+        </Text>
       </View>
 
       <FolhaModal

@@ -1,4 +1,4 @@
-# Minhas Dívidas
+# Quitaê
 
 App de controle pessoal de dívidas, **100% offline**. Sem backend, sem conta,
 sem sync — tudo mora no SQLite do próprio aparelho.
@@ -105,6 +105,22 @@ apagado junto.
 
 **preferencias** — pares chave/valor por workspace (`nome_usuario`, `tema`).
 
+## Ícones e logo
+
+Os ícones são gerados a partir de `assets/logo/quitae-master-1024.png` (extraído
+do SVG original, que embute a arte em raster — não é vetor de verdade, por isso
+o PNG de 1024 é a melhor fonte disponível).
+
+- `assets/images/icon.png` — arte cheia, fundo `#161A23`
+- `assets/images/android-icon-foreground.png` — só a marca, dentro da zona
+  segura do ícone adaptativo; o fundo vem de `adaptiveIcon.backgroundColor`
+- `assets/images/android-icon-monochrome.png` — silhueta para o tema do Android 13+
+- `assets/images/splash-icon.png` e `logo-marca.png` — a marca sem fundo
+
+Como o `android/` é versionado e não passa por `prebuild`, os arquivos em
+`android/app/src/main/res/mipmap-*/` foram gerados junto e precisam ser
+regerados se o logo mudar.
+
 ## Como o mês é calculado
 
 `src/domain/mes.ts` decide quanto cada dívida pesa num mês (`YYYY-MM`):
@@ -180,6 +196,20 @@ APKs diferentes com o mesmo número, o aparelho pode recusar a instalação por
 cima — e aí só resta desinstalar, o que **apaga todas as dívidas e reservas**.
 O `version` do `app.json` não controla isso: como o `android/` é versionado e
 não regenerado por `prebuild`, quem manda é o `build.gradle`.
+
+### Por que o pacote ainda se chama `minhasdividas`
+
+O app se chama **Quitaê**, mas o `applicationId` continua
+`com.gabrielsantos.minhasdividas` e o banco continua `minhas-dividas.db`.
+Isso é de propósito: para o Android, o `applicationId` **é** a identidade do
+app. Trocá-lo faria o aparelho tratar o Quitaê como um app novo — sem
+atualização por cima, e a versão antiga só sairia desinstalando, o que
+**apaga todas as dívidas e reservas**. O mesmo vale para o nome do arquivo do
+banco: renomeá-lo faria o app abrir um banco vazio.
+
+Só o nome exibido mudou (`app_name`, `rootProject.name` e o `name` do
+`app.json`). Se um dia o app for para a Play Store, aí sim vale escolher um
+`applicationId` definitivo — mas antes de existir base instalada.
 
 ### Instalar no celular
 
