@@ -5,18 +5,21 @@ import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Cores } from '@/constants/theme';
-import { listarDividas } from '@/data/dividasRepository';
+import {
+  garantirRecorrentesDoMes,
+  listarOcorrenciasDoMes,
+} from '@/data/ocorrenciasRepository';
 import { definirRenda, obterRenda } from '@/data/rendaRepository';
 import { totalReservado } from '@/data/reservasRepository';
-import { Divida, TIPOS_DIVIDA } from '@/data/types';
+import { OcorrenciaComDivida, TIPOS_DIVIDA } from '@/data/types';
 import { ROTULO_TIPO } from '@/domain/divida';
 import { formatarMoeda, formatarValorEditavel, parsearValor } from '@/domain/format';
-import { calcularResumo, incidenciaNoMes, mesCorrente, parcelaDoMes, rotuloMes } from '@/domain/mes';
+import { calcularResumo, mesCorrente, rotuloMes } from '@/domain/mes';
 
 export default function ResumoScreen() {
   const insets = useSafeAreaInsets();
   const [mes, setMes] = useState(mesCorrente);
-  const [dividas, setDividas] = useState<Divida[]>([]);
+  const [ocorrencias, setOcorrencias] = useState<OcorrenciaComDivida[]>([]);
   const [rendaTexto, setRendaTexto] = useState('');
   const [reservado, setReservado] = useState(0);
   const [carregando, setCarregando] = useState(true);
@@ -28,10 +31,13 @@ export default function ResumoScreen() {
       const atual = mesCorrente();
       setMes(atual);
 
-      Promise.all([listarDividas(), obterRenda(atual), totalReservado()])
+      garantirRecorrentesDoMes(atual)
+        .then(() =>
+          Promise.all([listarOcorrenciasDoMes(atual), obterRenda(atual), totalReservado()]),
+        )
         .then(([lista, renda, reservas]) => {
           if (!ativo) return;
-          setDividas(lista);
+          setOcorrencias(lista);
           setRendaTexto(renda ? formatarValorEditavel(renda.valor) : '');
           setReservado(reservas);
         })
@@ -43,7 +49,10 @@ export default function ResumoScreen() {
   );
 
   const renda = parsearValor(rendaTexto);
-  const resumo = useMemo(() => calcularResumo(dividas, mes, renda), [dividas, mes, renda]);
+  const resumo = useMemo(
+    () => calcularResumo(ocorrencias, mes, renda),
+    [ocorrencias, mes, renda],
+  );
 
   // Salva ao sair do campo — evita escrever no banco a cada tecla.
   function salvarRenda() {
@@ -61,7 +70,8 @@ export default function ResumoScreen() {
   }
 
   const positivo = resumo.saldo >= 0;
-  const comprometido = renda > 0 ? Math.min(resumo.totalDividas / renda, 1) : 0;
+  const comprometido = renda > 0 ? Math.min(resumo.totalMes / renda, 1) : 0;
+  const progressoPago = resumo.totalMes > 0 ? resumo.pago / resumo.totalMes : 0;
 
   return (
     <ScrollView
@@ -118,8 +128,7 @@ export default function ResumoScreen() {
           </Text>
         </View>
 
-        <Text
-          className={`mt-1.5 text-4xl font-bold ${positivo ? 'text-mist-100' : 'text-danger'}`}>
+        <Text className={`mt-1.5 text-4xl font-bold ${positivo ? 'text-mist-100' : 'text-danger'}`}>
           {formatarMoeda(Math.abs(resumo.saldo))}
         </Text>
 
@@ -139,8 +148,35 @@ export default function ResumoScreen() {
 
         <View className="mt-4 gap-1.5 border-t border-white/[0.07] pt-4">
           <LinhaValor rotulo="Renda" valor={formatarMoeda(renda)} />
-          <LinhaValor rotulo="Dívidas do mês" valor={`− ${formatarMoeda(resumo.totalDividas)}`} />
+          <LinhaValor rotulo="Dívidas do mês" valor={`− ${formatarMoeda(resumo.totalMes)}`} />
         </View>
+      </View>
+
+      {/* Total do mês x já pago x falta pagar */}
+      <View className="mt-3 rounded-card border border-ink-500 bg-ink-700 p-4">
+        <View className="flex-row">
+          <Coluna rotulo="Total do mês" valor={formatarMoeda(resumo.totalMes)} />
+          <Coluna rotulo="Já pago" valor={formatarMoeda(resumo.pago)} cor="text-ok" />
+          <Coluna
+            rotulo="Falta pagar"
+            valor={formatarMoeda(resumo.aPagar)}
+            cor={resumo.aPagar > 0 ? 'text-warn' : 'text-mist-300'}
+          />
+        </View>
+
+        {resumo.totalMes > 0 ? (
+          <View className="mt-4">
+            <View className="h-1.5 overflow-hidden rounded-full bg-ink-600">
+              <View
+                style={{ width: `${progressoPago * 100}%` }}
+                className="h-full rounded-full bg-ok"
+              />
+            </View>
+            <Text className="mt-2 text-xs text-mist-400">
+              {Math.round(progressoPago * 100)}% das contas do mês já quitadas
+            </Text>
+          </View>
+        ) : null}
       </View>
 
       {/* Reservado — informativo, de propósito fora da conta do saldo */}
@@ -151,16 +187,14 @@ export default function ResumoScreen() {
           </View>
           <View className="flex-1">
             <Text className="text-[15px] text-mist-100">Guardado em reservas</Text>
-            <Text className="mt-0.5 text-xs text-mist-400">
-              Não entra na conta do saldo acima
-            </Text>
+            <Text className="mt-0.5 text-xs text-mist-400">Não entra na conta do saldo acima</Text>
           </View>
           <Text className="text-[15px] font-semibold text-ok">{formatarMoeda(reservado)}</Text>
         </View>
       ) : null}
 
       {/* Composição por tipo */}
-      {resumo.dividasDoMes.length > 0 ? (
+      {resumo.ocorrenciasDoMes.length > 0 ? (
         <>
           <Secao titulo="Composição" />
           <View className="rounded-card border border-ink-500 bg-ink-700 px-4">
@@ -175,7 +209,7 @@ export default function ResumoScreen() {
                     <Text className="text-[15px] text-mist-100">{ROTULO_TIPO[tipo]}</Text>
                     <Text className="mt-0.5 text-xs text-mist-400">
                       {resumo.porTipo[tipo].quantidade}{' '}
-                      {resumo.porTipo[tipo].quantidade === 1 ? 'dívida' : 'dívidas'}
+                      {resumo.porTipo[tipo].quantidade === 1 ? 'conta' : 'contas'}
                     </Text>
                   </View>
                   <Text className="text-[15px] font-semibold text-mist-100">
@@ -188,31 +222,29 @@ export default function ResumoScreen() {
 
           <Secao titulo="O que vence neste mês" />
           <View className="rounded-card border border-ink-500 bg-ink-700 px-4">
-            {resumo.dividasDoMes.map((divida, indice) => {
-              const parcela = parcelaDoMes(divida, mes);
-              return (
-                <View
-                  key={divida.id}
-                  className={`flex-row items-center justify-between gap-3 py-3.5 ${
-                    indice > 0 ? 'border-t border-ink-500' : ''
-                  }`}>
-                  <View className="flex-1">
-                    <Text className="text-[15px] text-mist-100" numberOfLines={1}>
-                      {divida.nome}
-                    </Text>
-                    <Text className="mt-0.5 text-xs text-mist-400">
-                      {ROTULO_TIPO[divida.tipo]}
-                      {parcela && divida.parcelaTotal
-                        ? ` · parcela ${parcela}/${divida.parcelaTotal}`
-                        : ''}
-                    </Text>
-                  </View>
-                  <Text className="text-[15px] font-semibold text-mist-100">
-                    {formatarMoeda(incidenciaNoMes(divida, mes))}
+            {resumo.ocorrenciasDoMes.map((ocorrencia, indice) => (
+              <View
+                key={ocorrencia.id}
+                className={`flex-row items-center justify-between gap-3 py-3.5 ${
+                  indice > 0 ? 'border-t border-ink-500' : ''
+                } ${ocorrencia.status === 'paga' ? 'opacity-55' : ''}`}>
+                <View className="flex-1">
+                  <Text className="text-[15px] text-mist-100" numberOfLines={1}>
+                    {ocorrencia.nome}
+                  </Text>
+                  <Text className="mt-0.5 text-xs text-mist-400">
+                    {ROTULO_TIPO[ocorrencia.tipo]}
+                    {ocorrencia.numeroParcela && ocorrencia.totalParcelas
+                      ? ` · parcela ${ocorrencia.numeroParcela}/${ocorrencia.totalParcelas}`
+                      : ''}
+                    {ocorrencia.status === 'paga' ? ' · paga' : ''}
                   </Text>
                 </View>
-              );
-            })}
+                <Text className="text-[15px] font-semibold text-mist-100">
+                  {formatarMoeda(ocorrencia.valor)}
+                </Text>
+              </View>
+            ))}
           </View>
         </>
       ) : (
@@ -223,6 +255,15 @@ export default function ResumoScreen() {
         </View>
       )}
     </ScrollView>
+  );
+}
+
+function Coluna({ rotulo, valor, cor }: { rotulo: string; valor: string; cor?: string }) {
+  return (
+    <View className="flex-1">
+      <Text className="text-[11px] uppercase tracking-wide text-mist-400">{rotulo}</Text>
+      <Text className={`mt-1 text-[15px] font-bold ${cor ?? 'text-mist-100'}`}>{valor}</Text>
+    </View>
   );
 }
 

@@ -1,31 +1,28 @@
 import dayjs from 'dayjs';
-import { Divida } from '@/data/types';
-import {
-  descricaoPrazo,
-  ordenarDividas,
-  statusDivida,
-  vencimentoEfetivo,
-} from '@/domain/divida';
+import { OcorrenciaComDivida, TipoDivida } from '@/data/types';
+import { converterParaOcorrencias, ocorrenciasIniciais, vencimentoRecorrenteNoMes } from '@/domain/divida';
 import { formatarValorEditavel, parsearValor } from '@/domain/format';
-import { calcularResumo, incidenciaNoMes, parcelaDoMes, rotuloMes } from '@/domain/mes';
+import { calcularResumo, rotuloMes } from '@/domain/mes';
+import { descricaoPrazo, ordenarOcorrencias, situacaoOcorrencia } from '@/domain/ocorrencia';
+import { dividirEmCentavos, planejarParcelas } from '@/domain/parcelas';
 
 const HOJE = dayjs('2026-08-20').startOf('day');
 
-function d(p: Partial<Divida>): Divida {
+function o(p: Partial<OcorrenciaComDivida>): OcorrenciaComDivida {
   return {
-    id: p.nome ?? 'x',
+    id: p.id ?? p.nome ?? 'x',
+    dividaId: p.dividaId ?? 'd1',
     workspaceId: 'local',
     ownerId: 'me',
-    nome: p.nome ?? 'x',
-    tipo: p.tipo ?? 'pontual',
+    dataVencimento: p.dataVencimento ?? '2026-08-20',
     valor: p.valor ?? 100,
-    dataVencimento: p.dataVencimento ?? null,
-    diaVencimentoRecorrente: p.diaVencimentoRecorrente ?? null,
-    parcelaAtual: p.parcelaAtual ?? null,
-    parcelaTotal: p.parcelaTotal ?? null,
-    categoria: null,
-    ativa: p.ativa ?? true,
-    criadoEm: '2026-01-01T00:00:00.000Z',
+    status: p.status ?? 'pendente',
+    numeroParcela: p.numeroParcela ?? null,
+    totalParcelas: p.totalParcelas ?? null,
+    pagoEm: p.pagoEm ?? null,
+    nome: p.nome ?? 'x',
+    tipo: (p.tipo ?? 'pontual') as TipoDivida,
+    categoria: p.categoria ?? null,
   };
 }
 
@@ -33,112 +30,131 @@ let falhas = 0;
 function eq(rotulo: string, obtido: unknown, esperado: unknown) {
   const ok = JSON.stringify(obtido) === JSON.stringify(esperado);
   if (!ok) falhas++;
-  console.log(`${ok ? 'ok  ' : 'FALHA'} ${rotulo}${ok ? '' : `\n      obtido=${JSON.stringify(obtido)} esperado=${JSON.stringify(esperado)}`}`);
+  console.log(
+    `${ok ? 'ok  ' : 'FALHA'} ${rotulo}${ok ? '' : `\n      obtido=${JSON.stringify(obtido)} esperado=${JSON.stringify(esperado)}`}`,
+  );
 }
 
-// --- vencimento efetivo de recorrentes ---
-eq('recorrente dia 25 -> 25/08 (ainda neste mês)',
-  vencimentoEfetivo(d({ tipo: 'recorrente', diaVencimentoRecorrente: 25 }), HOJE)?.format('YYYY-MM-DD'),
-  '2026-08-25');
+// --- divisão em centavos: não pode sobrar nem faltar dinheiro ---
+eq('300 em 6x -> parcelas iguais', dividirEmCentavos(300, 6), [50, 50, 50, 50, 50, 50]);
+eq('100 em 3x -> última absorve a sobra', dividirEmCentavos(100, 3), [33.33, 33.33, 33.34]);
+eq('100 em 3x soma exatamente 100',
+  dividirEmCentavos(100, 3).reduce((a, b) => a + b, 0), 100);
+eq('0,10 em 3x', dividirEmCentavos(0.1, 3), [0.03, 0.03, 0.04]);
+eq('1 em 1x', dividirEmCentavos(1, 1), [1]);
 
-eq('recorrente dia 10 -> 10/09 (já passou este mês)',
-  vencimentoEfetivo(d({ tipo: 'recorrente', diaVencimentoRecorrente: 10 }), HOJE)?.format('YYYY-MM-DD'),
-  '2026-09-10');
+// --- planejamento de parcelas ---
+const seis = planejarParcelas('2026-01-15', 6, 300);
+eq('6 parcelas geradas', seis.length, 6);
+eq('1ª parcela mantém a data', seis[0].data, '2026-01-15');
+eq('2ª parcela cai no mês seguinte', seis[1].data, '2026-02-15');
+eq('6ª parcela seis meses depois', seis[5].data, '2026-06-15');
+eq('numeração vai de 1 a 6', [seis[0].numero, seis[5].numero], [1, 6]);
+eq('cada parcela vale 50', seis[0].valor, 50);
 
-eq('recorrente dia 20 -> hoje conta como não vencida',
-  vencimentoEfetivo(d({ tipo: 'recorrente', diaVencimentoRecorrente: 20 }), HOJE)?.format('YYYY-MM-DD'),
-  '2026-08-20');
+const dia31 = planejarParcelas('2026-01-31', 3, 90);
+eq('dia 31 clampa em fevereiro', dia31[1].data, '2026-02-28');
+eq('dia 31 volta a 31 em março', dia31[2].data, '2026-03-31');
 
-eq('recorrente dia 31 em fevereiro -> clampa para 28',
-  vencimentoEfetivo(d({ tipo: 'recorrente', diaVencimentoRecorrente: 31 }), dayjs('2026-02-01'))?.format('YYYY-MM-DD'),
-  '2026-02-28');
+// --- ocorrências iniciais por tipo ---
+eq('pontual gera 1 ocorrência',
+  ocorrenciasIniciais({ tipo: 'pontual', dataVencimento: '2026-09-10' }, 250, null).length, 1);
+eq('pontual usa o valor cheio',
+  ocorrenciasIniciais({ tipo: 'pontual', dataVencimento: '2026-09-10' }, 250, null)[0].valor, 250);
+eq('parcelada gera N ocorrências',
+  ocorrenciasIniciais({ tipo: 'parcelada', dataVencimento: '2026-09-10' }, 300, 6).length, 6);
+eq('recorrente não gera nada no cadastro',
+  ocorrenciasIniciais({ tipo: 'recorrente', dataVencimento: null }, 0, null).length, 0);
 
-// --- status ---
-eq('vencida ontem -> atrasada', statusDivida(d({ dataVencimento: '2026-08-19' }), HOJE), 'atrasada');
-eq('vence hoje -> proxima', statusDivida(d({ dataVencimento: '2026-08-20' }), HOJE), 'proxima');
-eq('vence em 7 dias -> proxima', statusDivida(d({ dataVencimento: '2026-08-27' }), HOJE), 'proxima');
-eq('vence em 8 dias -> em dia', statusDivida(d({ dataVencimento: '2026-08-28' }), HOJE), 'em_dia');
-eq('parcela 13/12 -> quitada',
-  statusDivida(d({ tipo: 'parcelada', parcelaAtual: 13, parcelaTotal: 12, dataVencimento: '2026-08-19' }), HOJE),
-  'quitada');
-eq('inativa -> quitada', statusDivida(d({ ativa: false, dataVencimento: '2026-08-19' }), HOJE), 'quitada');
+// --- vencimento de recorrente no mês ---
+eq('recorrente dia 10 em setembro',
+  vencimentoRecorrenteNoMes(
+    { tipo: 'recorrente', diaVencimento: 10 } as never, '2026-09'), '2026-09-10');
+eq('recorrente dia 31 em fevereiro clampa',
+  vencimentoRecorrenteNoMes(
+    { tipo: 'recorrente', diaVencimento: 31 } as never, '2026-02'), '2026-02-28');
 
-// --- prazos ---
-eq('prazo hoje', descricaoPrazo(d({ dataVencimento: '2026-08-20' }), HOJE), 'Vence hoje');
-eq('prazo amanhã', descricaoPrazo(d({ dataVencimento: '2026-08-21' }), HOJE), 'Vence amanhã');
-eq('prazo atrasada 3d', descricaoPrazo(d({ dataVencimento: '2026-08-17' }), HOJE), 'Atrasada há 3 dias');
+// --- situação da ocorrência ---
+eq('vencida ontem -> atrasada',
+  situacaoOcorrencia(o({ dataVencimento: '2026-08-19' }), HOJE), 'atrasada');
+eq('vence hoje -> proxima',
+  situacaoOcorrencia(o({ dataVencimento: '2026-08-20' }), HOJE), 'proxima');
+eq('vence em 7 dias -> proxima',
+  situacaoOcorrencia(o({ dataVencimento: '2026-08-27' }), HOJE), 'proxima');
+eq('vence em 8 dias -> em dia',
+  situacaoOcorrencia(o({ dataVencimento: '2026-08-28' }), HOJE), 'em_dia');
+eq('paga vence qualquer prazo',
+  situacaoOcorrencia(o({ dataVencimento: '2026-01-01', status: 'paga' }), HOJE), 'paga');
+
+eq('prazo de atrasada', descricaoPrazo(o({ dataVencimento: '2026-08-18' }), HOJE), 'Atrasada há 2 dias');
+eq('prazo de hoje', descricaoPrazo(o({ dataVencimento: '2026-08-20' }), HOJE), 'Vence hoje');
+eq('prazo de amanhã', descricaoPrazo(o({ dataVencimento: '2026-08-21' }), HOJE), 'Vence amanhã');
+eq('prazo de paga mostra a data',
+  descricaoPrazo(o({ status: 'paga', pagoEm: '2026-08-15T12:00:00.000Z' }), HOJE),
+  'Paga em 15/08');
 
 // --- ordenação ---
 const lista = [
-  d({ nome: 'Cartão', tipo: 'recorrente', diaVencimentoRecorrente: 5, valor: 800 }),   // 05/09
-  d({ nome: 'Atrasado', dataVencimento: '2026-08-15', valor: 50 }),                     // 15/08
-  d({ nome: 'Quitada', tipo: 'parcelada', parcelaAtual: 13, parcelaTotal: 12, dataVencimento: '2026-08-01', valor: 9999 }),
-  d({ nome: 'Aluguel', tipo: 'recorrente', diaVencimentoRecorrente: 25, valor: 1500 }), // 25/08
+  o({ id: 'c', nome: 'Cartão', dataVencimento: '2026-08-25', valor: 300 }),
+  o({ id: 'a', nome: 'Aluguel', dataVencimento: '2026-08-05', valor: 1500 }),
+  o({ id: 'p', nome: 'Paga', dataVencimento: '2026-08-01', valor: 999, status: 'paga' }),
 ];
-
-eq('ordem por vencimento (quitada no fim)',
-  ordenarDividas(lista, 'vencimento', HOJE).map((x) => x.nome),
-  ['Atrasado', 'Aluguel', 'Cartão', 'Quitada']);
-
-eq('ordem por valor desc (quitada no fim)',
-  ordenarDividas(lista, 'valor', HOJE).map((x) => x.nome),
-  ['Aluguel', 'Cartão', 'Atrasado', 'Quitada']);
-
-eq('ordem por nome (quitada no fim)',
-  ordenarDividas(lista, 'nome', HOJE).map((x) => x.nome),
-  ['Aluguel', 'Atrasado', 'Cartão', 'Quitada']);
-
-// --- incidência mensal ---
-const recorrente = d({ nome: 'Aluguel', tipo: 'recorrente', diaVencimentoRecorrente: 10, valor: 1500 });
-eq('recorrente incide no mês corrente', incidenciaNoMes(recorrente, '2026-08'), 1500);
-eq('recorrente incide em qualquer mês', incidenciaNoMes(recorrente, '2027-03'), 1500);
-
-const pontual = d({ nome: 'IPVA', tipo: 'pontual', dataVencimento: '2026-09-15', valor: 900 });
-eq('pontual incide só no mês do vencimento', incidenciaNoMes(pontual, '2026-09'), 900);
-eq('pontual não incide antes', incidenciaNoMes(pontual, '2026-08'), 0);
-eq('pontual não incide depois', incidenciaNoMes(pontual, '2026-10'), 0);
-
-// parcela 3/12 vencendo em 10/08/2026 -> parcelas 3..12 caem de 08/2026 a 05/2027
-const parcelada = d({
-  nome: 'Notebook', tipo: 'parcelada', valor: 250,
-  dataVencimento: '2026-08-10', parcelaAtual: 3, parcelaTotal: 12,
-});
-eq('parcelada incide no mês da parcela atual', incidenciaNoMes(parcelada, '2026-08'), 250);
-eq('parcelada incide na última parcela (05/2027)', incidenciaNoMes(parcelada, '2027-05'), 250);
-eq('parcelada não incide após a última', incidenciaNoMes(parcelada, '2027-06'), 0);
-eq('parcelada não incide antes da parcela atual', incidenciaNoMes(parcelada, '2026-07'), 0);
-eq('parcela do mês 08/2026 é a 3ª', parcelaDoMes(parcelada, '2026-08'), 3);
-eq('parcela do mês 10/2026 é a 5ª', parcelaDoMes(parcelada, '2026-10'), 5);
-eq('parcela do mês 05/2027 é a 12ª', parcelaDoMes(parcelada, '2027-05'), 12);
-eq('parcela fora da janela é null', parcelaDoMes(parcelada, '2027-06'), null);
-
-// última parcela: atual == total -> incide só neste mês
-const ultima = d({
-  nome: 'Última', tipo: 'parcelada', valor: 100,
-  dataVencimento: '2026-08-05', parcelaAtual: 12, parcelaTotal: 12,
-});
-eq('última parcela incide no mês dela', incidenciaNoMes(ultima, '2026-08'), 100);
-eq('última parcela não incide no mês seguinte', incidenciaNoMes(ultima, '2026-09'), 0);
-
-eq('quitada não incide', incidenciaNoMes(d({ tipo: 'recorrente', diaVencimentoRecorrente: 5, ativa: false }), '2026-08'), 0);
+eq('ordena por vencimento, pagas no fim',
+  ordenarOcorrencias(lista, 'vencimento').map((x) => x.id), ['a', 'c', 'p']);
+eq('ordena por valor, pagas no fim',
+  ordenarOcorrencias(lista, 'valor').map((x) => x.id), ['a', 'c', 'p']);
+eq('ordena por nome, pagas no fim',
+  ordenarOcorrencias(lista, 'nome').map((x) => x.id), ['a', 'c', 'p']);
 
 // --- resumo do mês ---
-const resumo = calcularResumo([recorrente, pontual, parcelada, ultima], '2026-08', 4000);
-eq('total do mês soma só quem incide', resumo.totalDividas, 1500 + 250 + 100);
-eq('saldo = renda - total', resumo.saldo, 4000 - 1850);
-eq('dívidas do mês exclui a pontual de setembro',
-  resumo.dividasDoMes.map((x) => x.nome).sort(),
-  ['Aluguel', 'Notebook', 'Última']);
-eq('quebra por tipo: recorrente', resumo.porTipo.recorrente, { total: 1500, quantidade: 1 });
-eq('quebra por tipo: parcelada', resumo.porTipo.parcelada, { total: 350, quantidade: 2 });
-eq('quebra por tipo: pontual', resumo.porTipo.pontual, { total: 0, quantidade: 0 });
+const doMes = [
+  o({ id: '1', dataVencimento: '2026-08-05', valor: 1000, tipo: 'recorrente' }),
+  o({ id: '2', dataVencimento: '2026-08-10', valor: 500, tipo: 'parcelada', status: 'paga' }),
+  o({ id: '3', dataVencimento: '2026-09-10', valor: 700, tipo: 'pontual' }),
+];
+const r = calcularResumo(doMes, '2026-08', 4000);
+eq('total do mês soma só o mês de referência', r.totalMes, 1500);
+eq('já pago', r.pago, 500);
+eq('falta pagar', r.aPagar, 1000);
+eq('saldo = renda - total do mês', r.saldo, 2500);
+eq('ocorrências do mês exclui setembro', r.ocorrenciasDoMes.length, 2);
+eq('quebra por tipo: recorrente', r.porTipo.recorrente, { total: 1000, quantidade: 1 });
+eq('quebra por tipo: parcelada', r.porTipo.parcelada, { total: 500, quantidade: 1 });
+eq('quebra por tipo: pontual (fora do mês)', r.porTipo.pontual, { total: 0, quantidade: 0 });
 
-const negativo = calcularResumo([recorrente], '2026-08', 1000);
+const vazio = calcularResumo([], '2026-08', 0);
+eq('mês vazio -> total zero', vazio.totalMes, 0);
+eq('mês vazio -> saldo zero', vazio.saldo, 0);
+
+const negativo = calcularResumo(
+  [o({ dataVencimento: '2026-08-05', valor: 1500 })], '2026-08', 1000);
 eq('saldo negativo quando falta', negativo.saldo, -500);
 
-const semRenda = calcularResumo([], '2026-08', 0);
-eq('mês vazio -> total zero', semRenda.totalDividas, 0);
-eq('mês vazio -> saldo zero', semRenda.saldo, 0);
+// --- conversão do modelo antigo (migração 3) ---
+const convPontual = converterParaOcorrencias(
+  { tipo: 'pontual', valor: 250, dataVencimento: '2026-09-10',
+    diaVencimentoRecorrente: null, parcelaAtual: null, parcelaTotal: null }, '2026-08');
+eq('conversão pontual -> 1 ocorrência', convPontual.length, 1);
+eq('conversão pontual preserva valor e data',
+  [convPontual[0].valor, convPontual[0].data], [250, '2026-09-10']);
+
+const convParc = converterParaOcorrencias(
+  { tipo: 'parcelada', valor: 50, dataVencimento: '2026-08-15',
+    diaVencimentoRecorrente: null, parcelaAtual: 3, parcelaTotal: 6 }, '2026-08');
+eq('conversão parcelada -> 6 ocorrências', convParc.length, 6);
+eq('parcelas anteriores à atual ficam pagas',
+  convParc.map((x) => x.paga), [true, true, false, false, false, false]);
+eq('parcela atual mantém a data original', convParc[2].data, '2026-08-15');
+eq('parcela 1 caminha 2 meses para trás', convParc[0].data, '2026-06-15');
+eq('parcela 6 caminha 3 meses para frente', convParc[5].data, '2026-11-15');
+eq('conversão parcelada preserva o valor da parcela', convParc[0].valor, 50);
+
+const convRec = converterParaOcorrencias(
+  { tipo: 'recorrente', valor: 120, dataVencimento: null,
+    diaVencimentoRecorrente: 10, parcelaAtual: null, parcelaTotal: null }, '2026-08');
+eq('conversão recorrente -> 1 ocorrência no mês corrente', convRec.length, 1);
+eq('conversão recorrente usa o dia do vencimento', convRec[0].data, '2026-08-10');
+eq('conversão recorrente preserva o valor', convRec[0].valor, 120);
 
 eq('rótulo do mês em português', rotuloMes('2026-08'), 'Agosto de 2026');
 
@@ -156,7 +172,6 @@ eq('texto vazio -> 0', parsearValor(''), 0);
 eq('lixo -> 0', parsearValor('abc'), 0);
 eq('com símbolo de moeda', parsearValor('R$ 2.500,90'), 2500.9);
 
-// O campo editável precisa voltar a ser lido sem perda.
 for (const valor of [1234.56, 1500, 0.5, 10000, 999999.99]) {
   eq(`ida e volta ${valor}`, parsearValor(formatarValorEditavel(valor)), valor);
 }

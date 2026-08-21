@@ -1,13 +1,7 @@
 import * as Crypto from 'expo-crypto';
 
 import { getDatabase } from './db';
-import {
-  Divida,
-  NovaDivida,
-  OWNER_LOCAL,
-  TipoDivida,
-  WORKSPACE_LOCAL,
-} from './types';
+import { Divida, NovaDivida, OWNER_LOCAL, TipoDivida, WORKSPACE_LOCAL } from './types';
 
 interface DividaRow {
   id: string;
@@ -15,12 +9,9 @@ interface DividaRow {
   owner_id: string;
   nome: string;
   tipo: TipoDivida;
-  valor: number;
-  data_vencimento: string | null;
-  dia_vencimento_recorrente: number | null;
-  parcela_atual: number | null;
-  parcela_total: number | null;
   categoria: string | null;
+  dia_vencimento: number | null;
+  data_vencimento: string | null;
   ativa: number;
   criado_em: string;
 }
@@ -32,12 +23,9 @@ function toDivida(row: DividaRow): Divida {
     ownerId: row.owner_id,
     nome: row.nome,
     tipo: row.tipo,
-    valor: row.valor,
-    dataVencimento: row.data_vencimento,
-    diaVencimentoRecorrente: row.dia_vencimento_recorrente,
-    parcelaAtual: row.parcela_atual,
-    parcelaTotal: row.parcela_total,
     categoria: row.categoria,
+    diaVencimento: row.dia_vencimento,
+    dataVencimento: row.data_vencimento,
     ativa: row.ativa === 1,
     criadoEm: row.criado_em,
   };
@@ -47,21 +35,10 @@ function toDivida(row: DividaRow): Divida {
 function normalizar(entrada: NovaDivida): NovaDivida {
   switch (entrada.tipo) {
     case 'recorrente':
-      return {
-        ...entrada,
-        dataVencimento: null,
-        parcelaAtual: null,
-        parcelaTotal: null,
-      };
+      return { ...entrada, dataVencimento: null };
     case 'parcelada':
-      return { ...entrada, diaVencimentoRecorrente: null };
     case 'pontual':
-      return {
-        ...entrada,
-        diaVencimentoRecorrente: null,
-        parcelaAtual: null,
-        parcelaTotal: null,
-      };
+      return { ...entrada, diaVencimento: null };
   }
 }
 
@@ -92,30 +69,24 @@ export async function criarDivida(entrada: NovaDivida): Promise<Divida> {
     criadoEm: new Date().toISOString(),
     nome: dados.nome,
     tipo: dados.tipo,
-    valor: dados.valor,
-    dataVencimento: dados.dataVencimento,
-    diaVencimentoRecorrente: dados.diaVencimentoRecorrente,
-    parcelaAtual: dados.parcelaAtual,
-    parcelaTotal: dados.parcelaTotal,
     categoria: dados.categoria,
+    diaVencimento: dados.diaVencimento,
+    dataVencimento: dados.dataVencimento,
   };
 
   await db.runAsync(
-    `INSERT INTO dividas (
-       id, workspace_id, owner_id, nome, tipo, valor, data_vencimento,
-       dia_vencimento_recorrente, parcela_atual, parcela_total, categoria, ativa, criado_em
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO dividas
+       (id, workspace_id, owner_id, nome, tipo, categoria, dia_vencimento,
+        data_vencimento, ativa, criado_em)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     divida.id,
     divida.workspaceId,
     divida.ownerId,
     divida.nome,
     divida.tipo,
-    divida.valor,
-    divida.dataVencimento,
-    divida.diaVencimentoRecorrente,
-    divida.parcelaAtual,
-    divida.parcelaTotal,
     divida.categoria,
+    divida.diaVencimento,
+    divida.dataVencimento,
     divida.ativa ? 1 : 0,
     divida.criadoEm,
   );
@@ -129,23 +100,20 @@ export async function atualizarDivida(id: string, entrada: NovaDivida): Promise<
 
   await db.runAsync(
     `UPDATE dividas SET
-       nome = ?, tipo = ?, valor = ?, data_vencimento = ?,
-       dia_vencimento_recorrente = ?, parcela_atual = ?, parcela_total = ?,
-       categoria = ?, ativa = ?
+       nome = ?, tipo = ?, categoria = ?, dia_vencimento = ?,
+       data_vencimento = ?, ativa = ?
      WHERE id = ?`,
     dados.nome,
     dados.tipo,
-    dados.valor,
-    dados.dataVencimento,
-    dados.diaVencimentoRecorrente,
-    dados.parcelaAtual,
-    dados.parcelaTotal,
     dados.categoria,
+    dados.diaVencimento,
+    dados.dataVencimento,
     (dados.ativa ?? true) ? 1 : 0,
     id,
   );
 }
 
+/** As ocorrências saem junto, por causa do ON DELETE CASCADE. */
 export async function removerDivida(id: string): Promise<void> {
   const db = await getDatabase();
   await db.runAsync(`DELETE FROM dividas WHERE id = ?`, id);

@@ -81,13 +81,29 @@ no fim do array** — nunca edite uma migração já instalada em algum celular.
 
 ## Modelo de dados
 
-**dividas** — `tipo` define quais campos valem:
+**dividas** — o *template*, cadastrado uma vez. **Não guarda valor.**
 
 | tipo | campos usados |
 | --- | --- |
-| `recorrente` | `dia_vencimento_recorrente` (1–31) |
-| `parcelada` | `data_vencimento` (da parcela atual), `parcela_atual`, `parcela_total` |
+| `recorrente` | `dia_vencimento` (1–31) |
+| `parcelada` | `data_vencimento` (da 1ª parcela) |
 | `pontual` | `data_vencimento` |
+
+**ocorrencias** — o que de fato vence, aparece na lista e é pago: uma linha por
+mês ou parcela, cada uma com `valor`, `status` (`pendente` | `paga`) e `pago_em`.
+Parceladas ainda trazem `numero_parcela` e `total_parcelas` (o "3/6" do card é
+renderização desses dois inteiros, não texto guardado).
+
+Quem gera as ocorrências:
+
+| tipo | quando | como |
+| --- | --- | --- |
+| `pontual` | no cadastro | uma só, com a data e o valor informados |
+| `parcelada` | no cadastro | as N parcelas, com o total dividido em centavos e vencimentos mensais |
+| `recorrente` | ao abrir o mês | uma por mês, com o valor da última ocorrência **paga** (ou 0 na primeira vez) |
+
+A divisão de parcelas é feita em centavos e a sobra vai toda na última parcela:
+100 em 3x vira 33,33 + 33,33 + 33,34. Sem isso, sobraria ou faltaria dinheiro.
 
 O repositório zera os campos que não pertencem ao tipo escolhido, então não
 sobra lixo quando o usuário troca o tipo no formulário.
@@ -123,23 +139,15 @@ regerados se o logo mudar.
 
 ## Como o mês é calculado
 
-`src/domain/mes.ts` decide quanto cada dívida pesa num mês (`YYYY-MM`):
+Não há recálculo de incidência a partir do template: o total do mês é uma soma
+direta das ocorrências cujo `data_vencimento` cai naquele mês. Parcelas que
+acabaram simplesmente não têm ocorrência ali, e novas aparecem sozinhas.
 
-| tipo | incide quando |
-| --- | --- |
-| `recorrente` | todo mês, sempre o mesmo valor |
-| `parcelada` | do mês da parcela atual até o da última parcela |
-| `pontual` | só no mês da `data_vencimento` |
+O Resumo mostra três números separados — **total do mês**, **já pago** e
+**falta pagar** — e o saldo continua sendo `renda − total do mês`.
 
-Dívidas quitadas ou inativas nunca incidem.
-
-**Premissa das parceladas:** parcelas mensais de valor igual. Guardamos o
-vencimento da *parcela atual* e derivamos as demais somando meses — o que não
-cobre financiamento com parcela variável. Se isso virar necessidade, o lugar de
-mexer é `incidenciaNoMes`.
-
-O saldo do mês é `renda − total`. Negativo aparece em vermelho no Resumo, junto
-da fatia da renda já comprometida.
+A Home mostra o mês corrente **mais** o que ficou pendente de meses anteriores:
+uma conta atrasada não pode sumir da vista só porque o mês virou.
 
 ## Gerando o APK
 

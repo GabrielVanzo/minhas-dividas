@@ -13,34 +13,60 @@ export type TipoDivida = 'recorrente' | 'parcelada' | 'pontual';
 
 export const TIPOS_DIVIDA: TipoDivida[] = ['recorrente', 'parcelada', 'pontual'];
 
+/**
+ * O cadastro da dívida — um *template*, criado uma vez.
+ * Não guarda valor: quem tem valor é cada ocorrência.
+ */
 export interface Divida {
   id: string;
   workspaceId: string;
   ownerId: string;
   nome: string;
   tipo: TipoDivida;
-  /** Valor da parcela/mensalidade, não o total do contrato. */
-  valor: number;
+  categoria: string | null;
+  /** 1..31, só para `recorrente`. */
+  diaVencimento: number | null;
   /**
    * `pontual`: a data única.
-   * `parcelada`: vencimento da parcela atual.
-   * `recorrente`: sempre null — use `diaVencimentoRecorrente`.
+   * `parcelada`: vencimento da 1ª parcela (as demais saem daí).
+   * `recorrente`: sempre null — use `diaVencimento`.
    */
   dataVencimento: string | null; // YYYY-MM-DD
-  /** 1..31, apenas para `recorrente`. */
-  diaVencimentoRecorrente: number | null;
-  parcelaAtual: number | null;
-  parcelaTotal: number | null;
-  categoria: string | null;
   ativa: boolean;
   criadoEm: string; // ISO 8601
 }
 
-/** Campos que o formulário envia; o repositório preenche o resto. */
-export type NovaDivida = Omit<
-  Divida,
-  'id' | 'workspaceId' | 'ownerId' | 'criadoEm' | 'ativa'
-> & { ativa?: boolean };
+export type NovaDivida = Omit<Divida, 'id' | 'workspaceId' | 'ownerId' | 'criadoEm' | 'ativa'> & {
+  ativa?: boolean;
+};
+
+export type StatusOcorrencia = 'pendente' | 'paga';
+
+/**
+ * O que de fato vence, aparece na lista e é pago. Uma linha por mês/parcela.
+ */
+export interface Ocorrencia {
+  id: string;
+  dividaId: string;
+  workspaceId: string;
+  ownerId: string;
+  dataVencimento: string; // YYYY-MM-DD
+  valor: number;
+  status: StatusOcorrencia;
+  /** Só para parceladas: 3 de 6. */
+  numeroParcela: number | null;
+  totalParcelas: number | null;
+  pagoEm: string | null; // ISO 8601
+}
+
+/** Ocorrência já com os dados do template — é o que a lista consome. */
+export interface OcorrenciaComDivida extends Ocorrencia {
+  nome: string;
+  tipo: TipoDivida;
+  categoria: string | null;
+}
+
+export type NovaOcorrencia = Omit<Ocorrencia, 'id' | 'workspaceId' | 'ownerId'>;
 
 export interface Reserva {
   id: string;

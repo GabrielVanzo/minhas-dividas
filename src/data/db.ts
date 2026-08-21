@@ -1,5 +1,8 @@
 import * as SQLite from 'expo-sqlite';
 
+import { converterParaOcorrencias, DividaAntiga } from '@/domain/divida';
+import { mesCorrente } from '@/domain/mes';
+
 const DB_NAME = 'quitae.db';
 
 /**
@@ -83,6 +86,106 @@ const MIGRATIONS: ((db: SQLite.SQLiteDatabase) => Promise<void>)[] = [
         nome,
         new Date().toISOString(),
       );
+    }
+  },
+
+  // Dívida deixa de ter valor fixo: passa a ser um template, e o que vence
+  // vira uma linha em `ocorrencias`. Converte o que já estava cadastrado.
+  //
+  // Ordem importa: as ocorrências só podem ser criadas DEPOIS de `dividas`
+  // ser reescrita. Criar a FK antes faria o `DROP TABLE dividas` falhar, e
+  // `PRAGMA foreign_keys` é ignorado dentro de uma transação.
+  async (db) => {
+    // 1. Lê o modelo antigo antes de a tabela mudar de forma.
+    const antigas = await db.getAllAsync<{
+      id: string;
+      tipo: DividaAntiga['tipo'];
+      valor: number;
+      data_vencimento: string | null;
+      dia_vencimento_recorrente: number | null;
+      parcela_atual: number | null;
+      parcela_total: number | null;
+    }>(`SELECT id, tipo, valor, data_vencimento, dia_vencimento_recorrente,
+               parcela_atual, parcela_total
+        FROM dividas`);
+
+    // 2. Reescreve `dividas` sem valor e sem os contadores de parcela.
+    await db.execAsync(`
+      CREATE TABLE dividas_nova (
+        id TEXT PRIMARY KEY NOT NULL,
+        workspace_id TEXT NOT NULL DEFAULT 'local',
+        owner_id TEXT NOT NULL DEFAULT 'me',
+        nome TEXT NOT NULL,
+        tipo TEXT NOT NULL CHECK (tipo IN ('recorrente', 'parcelada', 'pontual')),
+        categoria TEXT,
+        dia_vencimento INTEGER,
+        data_vencimento TEXT,
+        ativa INTEGER NOT NULL DEFAULT 1,
+        criado_em TEXT NOT NULL
+      );
+
+      INSERT INTO dividas_nova
+        (id, workspace_id, owner_id, nome, tipo, categoria, dia_vencimento,
+         data_vencimento, ativa, criado_em)
+      SELECT id, workspace_id, owner_id, nome, tipo, categoria,
+             dia_vencimento_recorrente, data_vencimento, ativa, criado_em
+      FROM dividas;
+
+      DROP TABLE dividas;
+      ALTER TABLE dividas_nova RENAME TO dividas;
+
+      CREATE INDEX idx_dividas_workspace ON dividas (workspace_id, ativa);
+    `);
+
+    // 3. Só agora a tabela de ocorrências, apontando para a `dividas` final.
+    await db.execAsync(`
+      CREATE TABLE ocorrencias (
+        id TEXT PRIMARY KEY NOT NULL,
+        divida_id TEXT NOT NULL REFERENCES dividas (id) ON DELETE CASCADE,
+        workspace_id TEXT NOT NULL DEFAULT 'local',
+        owner_id TEXT NOT NULL DEFAULT 'me',
+        data_vencimento TEXT NOT NULL,
+        valor REAL NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pendente'
+          CHECK (status IN ('pendente', 'paga')),
+        numero_parcela INTEGER,
+        total_parcelas INTEGER,
+        pago_em TEXT
+      );
+
+      CREATE INDEX idx_ocorrencias_mes
+        ON ocorrencias (workspace_id, owner_id, data_vencimento);
+      CREATE INDEX idx_ocorrencias_divida ON ocorrencias (divida_id);
+    `);
+
+    // 4. Converte o que existia.
+    const mes = mesCorrente();
+    for (const antiga of antigas) {
+      const convertidas = converterParaOcorrencias(
+        {
+          tipo: antiga.tipo,
+          valor: antiga.valor,
+          dataVencimento: antiga.data_vencimento,
+          diaVencimentoRecorrente: antiga.dia_vencimento_recorrente,
+          parcelaAtual: antiga.parcela_atual,
+          parcelaTotal: antiga.parcela_total,
+        },
+        mes,
+      );
+
+      for (const o of convertidas) {
+        await db.runAsync(
+          `INSERT INTO ocorrencias
+             (id, divida_id, data_vencimento, valor, status, numero_parcela, total_parcelas)
+           VALUES (lower(hex(randomblob(16))), ?, ?, ?, ?, ?, ?)`,
+          antiga.id,
+          o.data,
+          o.valor,
+          o.paga ? 'paga' : 'pendente',
+          o.numero,
+          o.total,
+        );
+      }
     }
   },
 ];

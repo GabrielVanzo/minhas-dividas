@@ -6,55 +6,96 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BotaoFlutuante } from '@/components/BotaoFlutuante';
 import { ControlesLista } from '@/components/ControlesLista';
-import { DividaCard } from '@/components/DividaCard';
 import { EmptyState } from '@/components/EmptyState';
+import { FolhaModal } from '@/components/FolhaModal';
+import { OcorrenciaCard } from '@/components/OcorrenciaCard';
+import { BotaoPrimario, Campo, EntradaTexto } from '@/components/form';
 import { Cores } from '@/constants/theme';
-import { listarDividas } from '@/data/dividasRepository';
+import {
+  atualizarValorOcorrencia,
+  garantirRecorrentesDoMes,
+  listarPainel,
+  marcarPaga,
+  marcarPendente,
+} from '@/data/ocorrenciasRepository';
 import { obterPreferencia } from '@/data/preferenciasRepository';
-import { Divida, TipoDivida } from '@/data/types';
-import { CampoOrdenacao, estaQuitada, ordenarDividas, statusDivida } from '@/domain/divida';
-import { formatarMoeda } from '@/domain/format';
+import { OcorrenciaComDivida, TipoDivida } from '@/data/types';
+import { formatarMoeda, formatarValorEditavel, parsearValor } from '@/domain/format';
+import { mesCorrente } from '@/domain/mes';
+import { CampoOrdenacao, ordenarOcorrencias } from '@/domain/ocorrencia';
 
 export default function DividasScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const [dividas, setDividas] = useState<Divida[]>([]);
+  const [ocorrencias, setOcorrencias] = useState<OcorrenciaComDivida[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [ordenacao, setOrdenacao] = useState<CampoOrdenacao>('vencimento');
   const [tipos, setTipos] = useState<TipoDivida[]>([]);
   const [nome, setNome] = useState('');
 
-  // Recarrega ao voltar do formulário — mais simples que propagar estado global.
+  // Edição rápida de valor, sem sair da lista.
+  const [emEdicao, setEmEdicao] = useState<OcorrenciaComDivida | null>(null);
+  const [valorTexto, setValorTexto] = useState('');
+
+  const recarregar = useCallback(async () => {
+    const mes = mesCorrente();
+    // Abrir o mês é o gatilho que materializa as recorrentes dele.
+    await garantirRecorrentesDoMes(mes);
+    return listarPainel(mes);
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       let ativo = true;
-      Promise.all([listarDividas(), obterPreferencia('nome_usuario')])
+      Promise.all([recarregar(), obterPreferencia('nome_usuario')])
         .then(([lista, nomeSalvo]) => {
           if (!ativo) return;
-          setDividas(lista);
+          setOcorrencias(lista);
           setNome(nomeSalvo ?? '');
         })
         .finally(() => ativo && setCarregando(false));
       return () => {
         ativo = false;
       };
-    }, []),
+    }, [recarregar]),
   );
 
   // Lista vazia de tipos = sem filtro, mostra tudo.
   const visiveis = useMemo(() => {
-    const filtradas = tipos.length === 0 ? dividas : dividas.filter((d) => tipos.includes(d.tipo));
-    return ordenarDividas(filtradas, ordenacao);
-  }, [dividas, tipos, ordenacao]);
+    const filtradas =
+      tipos.length === 0 ? ocorrencias : ocorrencias.filter((o) => tipos.includes(o.tipo));
+    return ordenarOcorrencias(filtradas, ordenacao);
+  }, [ocorrencias, tipos, ordenacao]);
 
   const resumo = useMemo(() => {
-    const abertas = visiveis.filter((d) => !estaQuitada(d));
+    const pendentes = visiveis.filter((o) => o.status === 'pendente');
     return {
-      total: abertas.reduce((soma, d) => soma + d.valor, 0),
-      quantidade: abertas.length,
-      atrasadas: abertas.filter((d) => statusDivida(d) === 'atrasada').length,
+      aPagar: pendentes.reduce((soma, o) => soma + o.valor, 0),
+      quantidade: pendentes.length,
+      pagas: visiveis.length - pendentes.length,
     };
   }, [visiveis]);
+
+  async function alternarPago(ocorrencia: OcorrenciaComDivida) {
+    if (ocorrencia.status === 'paga') {
+      await marcarPendente(ocorrencia.id);
+    } else {
+      await marcarPaga(ocorrencia.id);
+    }
+    setOcorrencias(await listarPainel(mesCorrente()));
+  }
+
+  function abrirEdicaoValor(ocorrencia: OcorrenciaComDivida) {
+    setEmEdicao(ocorrencia);
+    setValorTexto(ocorrencia.valor > 0 ? formatarValorEditavel(ocorrencia.valor) : '');
+  }
+
+  async function salvarValor() {
+    if (!emEdicao) return;
+    await atualizarValorOcorrencia(emEdicao.id, parsearValor(valorTexto));
+    setEmEdicao(null);
+    setOcorrencias(await listarPainel(mesCorrente()));
+  }
 
   function alternarTipo(tipo: TipoDivida) {
     setTipos((atuais) =>
@@ -70,7 +111,7 @@ export default function DividasScreen() {
     );
   }
 
-  const semNenhumaDivida = dividas.length === 0;
+  const semNenhuma = ocorrencias.length === 0;
 
   return (
     <View className="flex-1 bg-ink-900">
@@ -90,22 +131,22 @@ export default function DividasScreen() {
               </Text>
 
               <Text className="mt-1 text-3xl font-bold text-mist-100">
-                {formatarMoeda(resumo.total)}
+                {formatarMoeda(resumo.aPagar)}
               </Text>
 
               <Text className="mt-1 text-sm text-mist-300">
                 {resumo.quantidade === 0
-                  ? 'Nenhuma dívida em aberto'
-                  : `Total em aberto · ${resumo.quantidade} dívida${
-                      resumo.quantidade > 1 ? 's' : ''
+                  ? 'Nada a pagar neste mês'
+                  : `Falta pagar · ${resumo.quantidade} ${
+                      resumo.quantidade === 1 ? 'conta' : 'contas'
                     }`}
-                {resumo.atrasadas > 0
-                  ? ` · ${resumo.atrasadas} atrasada${resumo.atrasadas > 1 ? 's' : ''}`
+                {resumo.pagas > 0
+                  ? ` · ${resumo.pagas} ${resumo.pagas === 1 ? 'paga' : 'pagas'}`
                   : ''}
               </Text>
             </View>
 
-            {semNenhumaDivida ? null : (
+            {semNenhuma ? null : (
               <ControlesLista
                 tiposSelecionados={tipos}
                 onAlternarTipo={alternarTipo}
@@ -118,13 +159,17 @@ export default function DividasScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <DividaCard
-            divida={item}
-            onPress={() => router.push({ pathname: '/divida/[id]', params: { id: item.id } })}
+          <OcorrenciaCard
+            ocorrencia={item}
+            onPress={() =>
+              router.push({ pathname: '/divida/[id]', params: { id: item.dividaId } })
+            }
+            onAlternarPago={() => alternarPago(item)}
+            onEditarValor={() => abrirEdicaoValor(item)}
           />
         )}
         ListEmptyComponent={
-          semNenhumaDivida ? (
+          semNenhuma ? (
             <EmptyState
               icone={WalletMinimal}
               titulo="Tudo limpo por aqui"
@@ -136,8 +181,8 @@ export default function DividasScreen() {
             <EmptyState
               icone={SearchX}
               titulo="Nada com esse filtro"
-              descricao="Nenhuma dívida do tipo selecionado. Ajuste o filtro para ver as outras."
-              acaoRotulo="Mostrar todas"
+              descricao="Nenhuma conta deste tipo vence no período."
+              acaoRotulo="Limpar filtro"
               onAcao={() => setTipos([])}
             />
           )
@@ -145,6 +190,24 @@ export default function DividasScreen() {
       />
 
       <BotaoFlutuante onPress={() => router.push('/divida/nova')} />
+
+      <FolhaModal
+        visivel={emEdicao !== null}
+        onFechar={() => setEmEdicao(null)}
+        titulo={emEdicao ? `Valor de ${emEdicao.nome}` : 'Valor'}>
+        <Campo
+          rotulo="Valor desta conta"
+          dica="Vale só para este vencimento — os outros meses continuam como estão">
+          <EntradaTexto
+            value={valorTexto}
+            onChangeText={setValorTexto}
+            placeholder="0,00"
+            keyboardType="decimal-pad"
+            autoFocus
+          />
+        </Campo>
+        <BotaoPrimario rotulo="Salvar valor" onPress={salvarValor} />
+      </FolhaModal>
     </View>
   );
 }

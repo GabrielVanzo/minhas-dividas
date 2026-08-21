@@ -1,4 +1,4 @@
-import { StatusDivida } from '@/domain/divida';
+import { SituacaoOcorrencia } from '@/domain/ocorrencia';
 
 /**
  * Espelho em JS da paleta declarada em `tailwind.config.js`.
@@ -36,7 +36,7 @@ interface EstiloStatus {
   faixa: string;
 }
 
-export const ESTILO_STATUS: Record<StatusDivida, EstiloStatus> = {
+export const ESTILO_STATUS: Record<SituacaoOcorrencia, EstiloStatus> = {
   atrasada: {
     rotulo: 'Atrasada',
     cor: Cores.perigo,
@@ -58,8 +58,8 @@ export const ESTILO_STATUS: Record<StatusDivida, EstiloStatus> = {
     chipTexto: 'text-ok',
     faixa: 'bg-ok',
   },
-  quitada: {
-    rotulo: 'Quitada',
+  paga: {
+    rotulo: 'Paga',
     cor: Cores.textoApagado,
     chipFundo: 'bg-mist-400/15',
     chipTexto: 'text-mist-400',

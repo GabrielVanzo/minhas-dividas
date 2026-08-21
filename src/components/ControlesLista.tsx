@@ -5,7 +5,8 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { FolhaModal } from '@/components/FolhaModal';
 import { Cores } from '@/constants/theme';
 import { TipoDivida, TIPOS_DIVIDA } from '@/data/types';
-import { CampoOrdenacao, ROTULO_ORDENACAO, ROTULO_TIPO } from '@/domain/divida';
+import { ROTULO_TIPO } from '@/domain/divida';
+import { CampoOrdenacao, ROTULO_ORDENACAO } from '@/domain/ocorrencia';
 
 const CAMPOS: CampoOrdenacao[] = ['vencimento', 'valor', 'nome', 'tipo'];
 

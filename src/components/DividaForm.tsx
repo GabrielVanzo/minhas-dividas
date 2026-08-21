@@ -28,9 +28,15 @@ import {
   obterDivida,
   removerDivida,
 } from '@/data/dividasRepository';
+import {
+  criarOcorrencias,
+  listarOcorrenciasDaDivida,
+  removerPendentesDaDivida,
+} from '@/data/ocorrenciasRepository';
 import { NovaDivida, TipoDivida } from '@/data/types';
-import { ROTULO_TIPO } from '@/domain/divida';
-import { formatarValorEditavel, parsearValor } from '@/domain/format';
+import { ocorrenciasIniciais, ROTULO_TIPO } from '@/domain/divida';
+import { formatarMoeda, parsearValor } from '@/domain/format';
+import { dividirEmCentavos } from '@/domain/parcelas';
 
 const OPCOES_TIPO = (['recorrente', 'parcelada', 'pontual'] as TipoDivida[]).map((tipo) => ({
   valor: tipo,
@@ -40,11 +46,11 @@ const OPCOES_TIPO = (['recorrente', 'parcelada', 'pontual'] as TipoDivida[]).map
 interface Estado {
   nome: string;
   tipo: TipoDivida;
+  /** Pontual: o valor. Parcelada: o valor TOTAL, que o app divide. */
   valor: string;
   dataVencimento: string | null;
-  diaVencimentoRecorrente: string;
-  parcelaAtual: string;
-  parcelaTotal: string;
+  diaVencimento: string;
+  totalParcelas: string;
   categoria: string;
 }
 
@@ -53,9 +59,8 @@ const ESTADO_INICIAL: Estado = {
   tipo: 'recorrente',
   valor: '',
   dataVencimento: null,
-  diaVencimentoRecorrente: '',
-  parcelaAtual: '1',
-  parcelaTotal: '',
+  diaVencimento: '',
+  totalParcelas: '',
   categoria: '',
 };
 
@@ -69,6 +74,10 @@ export function DividaForm({ dividaId }: { dividaId?: string }) {
   const [categorias, setCategorias] = useState<string[]>([]);
   const [carregando, setCarregando] = useState(Boolean(dividaId));
   const [salvando, setSalvando] = useState(false);
+  /** Quantas ocorrências dessa dívida já foram pagas — trava a reedição. */
+  const [pagas, setPagas] = useState(0);
+
+  const editando = Boolean(dividaId);
 
   useEffect(() => {
     listarCategorias().then((lista) => setCategorias(lista.map((c) => c.nome)));
@@ -77,21 +86,24 @@ export function DividaForm({ dividaId }: { dividaId?: string }) {
   useEffect(() => {
     if (!dividaId) return;
 
-    obterDivida(dividaId).then((divida) => {
-      if (divida) {
-        setEstado({
-          nome: divida.nome,
-          tipo: divida.tipo,
-          valor: formatarValorEditavel(divida.valor),
-          dataVencimento: divida.dataVencimento,
-          diaVencimentoRecorrente: divida.diaVencimentoRecorrente?.toString() ?? '',
-          parcelaAtual: divida.parcelaAtual?.toString() ?? '1',
-          parcelaTotal: divida.parcelaTotal?.toString() ?? '',
-          categoria: divida.categoria ?? '',
-        });
-      }
-      setCarregando(false);
-    });
+    Promise.all([obterDivida(dividaId), listarOcorrenciasDaDivida(dividaId)]).then(
+      ([divida, ocorrencias]) => {
+        if (divida) {
+          const parceladas = ocorrencias.filter((o) => o.totalParcelas);
+          setEstado({
+            nome: divida.nome,
+            tipo: divida.tipo,
+            valor: '',
+            dataVencimento: divida.dataVencimento,
+            diaVencimento: divida.diaVencimento?.toString() ?? '',
+            totalParcelas: parceladas[0]?.totalParcelas?.toString() ?? '',
+            categoria: divida.categoria ?? '',
+          });
+          setPagas(ocorrencias.filter((o) => o.status === 'paga').length);
+        }
+        setCarregando(false);
+      },
+    );
   }, [dividaId]);
 
   function alterar<K extends keyof Estado>(campo: K, valor: Estado[K]) {
@@ -99,30 +111,37 @@ export function DividaForm({ dividaId }: { dividaId?: string }) {
     setErros((atuais) => ({ ...atuais, [campo]: undefined }));
   }
 
+  /** Só tipos que materializam ocorrências no cadastro pedem valor. */
+  const pedeValor = estado.tipo !== 'recorrente';
+  const valorTotal = parsearValor(estado.valor);
+  const total = Number.parseInt(estado.totalParcelas, 10);
+
+  const previaParcela =
+    estado.tipo === 'parcelada' && valorTotal > 0 && Number.isFinite(total) && total > 0
+      ? dividirEmCentavos(valorTotal, total)
+      : null;
+
   function validar(): NovaDivida | null {
     const novosErros: Erros = {};
 
     if (!estado.nome.trim()) novosErros.nome = 'Dê um nome para identificar a dívida';
 
-    const valor = parsearValor(estado.valor);
-    if (valor <= 0) novosErros.valor = 'Informe um valor maior que zero';
-
-    const dia = Number.parseInt(estado.diaVencimentoRecorrente, 10);
-    const atual = Number.parseInt(estado.parcelaAtual, 10);
-    const total = Number.parseInt(estado.parcelaTotal, 10);
+    const dia = Number.parseInt(estado.diaVencimento, 10);
 
     if (estado.tipo === 'recorrente' && (!Number.isFinite(dia) || dia < 1 || dia > 31)) {
-      novosErros.diaVencimentoRecorrente = 'Informe um dia entre 1 e 31';
+      novosErros.diaVencimento = 'Informe um dia entre 1 e 31';
+    }
+
+    if (pedeValor && valorTotal <= 0) {
+      novosErros.valor = 'Informe um valor maior que zero';
     }
 
     if (estado.tipo === 'parcelada') {
       if (!estado.dataVencimento) {
-        novosErros.dataVencimento = 'Informe o vencimento da parcela atual';
+        novosErros.dataVencimento = 'Informe o vencimento da 1ª parcela';
       }
       if (!Number.isFinite(total) || total < 1) {
-        novosErros.parcelaTotal = 'Informe o total de parcelas';
-      } else if (!Number.isFinite(atual) || atual < 1 || atual > total) {
-        novosErros.parcelaAtual = `Informe um número entre 1 e ${total}`;
+        novosErros.totalParcelas = 'Informe em quantas vezes';
       }
     }
 
@@ -136,12 +155,9 @@ export function DividaForm({ dividaId }: { dividaId?: string }) {
     return {
       nome: estado.nome.trim(),
       tipo: estado.tipo,
-      valor,
-      dataVencimento: estado.tipo === 'recorrente' ? null : estado.dataVencimento,
-      diaVencimentoRecorrente: estado.tipo === 'recorrente' ? dia : null,
-      parcelaAtual: estado.tipo === 'parcelada' ? atual : null,
-      parcelaTotal: estado.tipo === 'parcelada' ? total : null,
       categoria: estado.categoria.trim() || null,
+      diaVencimento: estado.tipo === 'recorrente' ? dia : null,
+      dataVencimento: estado.tipo === 'recorrente' ? null : estado.dataVencimento,
     };
   }
 
@@ -153,8 +169,21 @@ export function DividaForm({ dividaId }: { dividaId?: string }) {
     try {
       if (dividaId) {
         await atualizarDivida(dividaId, entrada);
+        // Regerar só faz sentido quando o usuário informou um valor novo.
+        // O que já foi pago é histórico e nunca é tocado.
+        if (pedeValor && valorTotal > 0) {
+          await removerPendentesDaDivida(dividaId);
+          await criarOcorrencias(
+            dividaId,
+            ocorrenciasIniciais(entrada, valorTotal, estado.tipo === 'parcelada' ? total : null),
+          );
+        }
       } else {
-        await criarDivida(entrada);
+        const divida = await criarDivida(entrada);
+        await criarOcorrencias(
+          divida.id,
+          ocorrenciasIniciais(entrada, valorTotal, estado.tipo === 'parcelada' ? total : null),
+        );
       }
       router.back();
     } catch (e) {
@@ -165,17 +194,21 @@ export function DividaForm({ dividaId }: { dividaId?: string }) {
 
   function confirmarRemocao() {
     if (!dividaId) return;
-    Alert.alert('Excluir dívida', `Remover "${estado.nome}" permanentemente?`, [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Excluir',
-        style: 'destructive',
-        onPress: async () => {
-          await removerDivida(dividaId);
-          router.back();
+    Alert.alert(
+      'Excluir dívida',
+      `Remover "${estado.nome}" e todos os seus vencimentos, inclusive os já pagos?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: async () => {
+            await removerDivida(dividaId);
+            router.back();
+          },
         },
-      },
-    ]);
+      ],
+    );
   }
 
   // Mantém visível a categoria já gravada mesmo que tenha sido excluída em Ajustes.
@@ -216,73 +249,112 @@ export function DividaForm({ dividaId }: { dividaId?: string }) {
           />
         </Campo>
 
-        <Campo
-          rotulo={estado.tipo === 'recorrente' ? 'Valor mensal' : 'Valor'}
-          dica={estado.tipo === 'parcelada' ? 'Valor de cada parcela, não o total' : undefined}
-          erro={erros.valor}>
-          <EntradaTexto
-            value={estado.valor}
-            onChangeText={(t) => alterar('valor', t)}
-            placeholder="0,00"
-            keyboardType="decimal-pad"
-            erro={Boolean(erros.valor)}
-          />
-        </Campo>
-
         {estado.tipo === 'recorrente' ? (
-          <Campo
-            rotulo="Dia do vencimento"
-            dica="Em meses mais curtos, o vencimento cai no último dia disponível"
-            erro={erros.diaVencimentoRecorrente}>
-            <EntradaTexto
-              value={estado.diaVencimentoRecorrente}
-              onChangeText={(t) => alterar('diaVencimentoRecorrente', t.replace(/\D/g, ''))}
-              placeholder="Ex.: 10"
-              keyboardType="number-pad"
-              maxLength={2}
-              erro={Boolean(erros.diaVencimentoRecorrente)}
-            />
-          </Campo>
-        ) : (
-          <Campo
-            rotulo={
-              estado.tipo === 'parcelada' ? 'Vencimento da parcela atual' : 'Data de vencimento'
-            }
-            erro={erros.dataVencimento}>
-            <SeletorData
-              valor={estado.dataVencimento}
-              onMudar={(iso) => alterar('dataVencimento', iso)}
-              erro={Boolean(erros.dataVencimento)}
-            />
-          </Campo>
-        )}
+          <>
+            <Campo
+              rotulo="Dia do vencimento"
+              dica="Em meses mais curtos, o vencimento cai no último dia disponível"
+              erro={erros.diaVencimento}>
+              <EntradaTexto
+                value={estado.diaVencimento}
+                onChangeText={(t) => alterar('diaVencimento', t.replace(/\D/g, ''))}
+                placeholder="Ex.: 10"
+                keyboardType="number-pad"
+                maxLength={2}
+                erro={Boolean(erros.diaVencimento)}
+              />
+            </Campo>
+
+            <View className="mb-5 rounded-xl border border-ink-500 bg-ink-700 px-4 py-3.5">
+              <Text className="text-[13px] font-medium text-mist-200">
+                O valor você informa mês a mês
+              </Text>
+              <Text className="mt-1 text-xs text-mist-400">
+                Todo mês o Quitaê cria o vencimento sozinho, já com o valor do mês
+                anterior. Quando a conta chegar diferente, é só tocar no valor na lista.
+              </Text>
+            </View>
+          </>
+        ) : null}
 
         {estado.tipo === 'parcelada' ? (
-          <View className="flex-row gap-3">
-            <View className="flex-1">
-              <Campo rotulo="Parcela atual" erro={erros.parcelaAtual}>
-                <EntradaTexto
-                  value={estado.parcelaAtual}
-                  onChangeText={(t) => alterar('parcelaAtual', t.replace(/\D/g, ''))}
-                  placeholder="1"
-                  keyboardType="number-pad"
-                  maxLength={3}
-                  erro={Boolean(erros.parcelaAtual)}
-                />
-              </Campo>
-            </View>
-            <View className="flex-1">
-              <Campo rotulo="Total de parcelas" erro={erros.parcelaTotal}>
-                <EntradaTexto
-                  value={estado.parcelaTotal}
-                  onChangeText={(t) => alterar('parcelaTotal', t.replace(/\D/g, ''))}
-                  placeholder="12"
-                  keyboardType="number-pad"
-                  maxLength={3}
-                  erro={Boolean(erros.parcelaTotal)}
-                />
-              </Campo>
-            </View>
+          <>
+            <Campo rotulo="Valor total" dica="O total da compra — o app divide" erro={erros.valor}>
+              <EntradaTexto
+                value={estado.valor}
+                onChangeText={(t) => alterar('valor', t)}
+                placeholder="0,00"
+                keyboardType="decimal-pad"
+                erro={Boolean(erros.valor)}
+              />
+            </Campo>
+
+            <Campo rotulo="Em quantas vezes" erro={erros.totalParcelas}>
+              <EntradaTexto
+                value={estado.totalParcelas}
+                onChangeText={(t) => alterar('totalParcelas', t.replace(/\D/g, ''))}
+                placeholder="Ex.: 6"
+                keyboardType="number-pad"
+                maxLength={3}
+                erro={Boolean(erros.totalParcelas)}
+              />
+            </Campo>
+
+            {previaParcela ? (
+              <View className="mb-5 rounded-xl border border-brand-500/40 bg-brand-500/10 px-4 py-3">
+                <Text className="text-[13px] font-semibold text-brand-400">
+                  {total}x de {formatarMoeda(previaParcela[0])}
+                </Text>
+                {previaParcela[total - 1] !== previaParcela[0] ? (
+                  <Text className="mt-1 text-xs text-mist-300">
+                    A última fica {formatarMoeda(previaParcela[total - 1])} para fechar o
+                    total sem sobra de centavos.
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
+
+            <Campo rotulo="Vencimento da 1ª parcela" erro={erros.dataVencimento}>
+              <SeletorData
+                valor={estado.dataVencimento}
+                onMudar={(iso) => alterar('dataVencimento', iso)}
+                erro={Boolean(erros.dataVencimento)}
+              />
+            </Campo>
+          </>
+        ) : null}
+
+        {estado.tipo === 'pontual' ? (
+          <>
+            <Campo rotulo="Valor" erro={erros.valor}>
+              <EntradaTexto
+                value={estado.valor}
+                onChangeText={(t) => alterar('valor', t)}
+                placeholder="0,00"
+                keyboardType="decimal-pad"
+                erro={Boolean(erros.valor)}
+              />
+            </Campo>
+
+            <Campo rotulo="Data de vencimento" erro={erros.dataVencimento}>
+              <SeletorData
+                valor={estado.dataVencimento}
+                onMudar={(iso) => alterar('dataVencimento', iso)}
+                erro={Boolean(erros.dataVencimento)}
+              />
+            </Campo>
+          </>
+        ) : null}
+
+        {editando && pedeValor ? (
+          <View className="mb-5 rounded-xl border border-ink-500 bg-ink-700 px-4 py-3.5">
+            <Text className="text-xs text-mist-300">
+              Deixe o valor em branco para manter os vencimentos como estão. Se preencher,
+              os vencimentos ainda não pagos são refeitos
+              {pagas > 0
+                ? ` — os ${pagas} já pagos ${pagas === 1 ? 'fica' : 'ficam'} intocados.`
+                : '.'}
+            </Text>
           </View>
         ) : null}
 
@@ -312,13 +384,13 @@ export function DividaForm({ dividaId }: { dividaId?: string }) {
 
         <View className="mt-2">
           <BotaoPrimario
-            rotulo={salvando ? 'Salvando…' : dividaId ? 'Salvar alterações' : 'Cadastrar dívida'}
+            rotulo={salvando ? 'Salvando…' : editando ? 'Salvar' : 'Cadastrar dívida'}
             onPress={salvar}
             desabilitado={salvando}
           />
         </View>
 
-        {dividaId ? (
+        {editando ? (
           <Pressable
             onPress={confirmarRemocao}
             className="mt-3 flex-row items-center justify-center gap-2 rounded-xl border border-ink-500 py-4 active:opacity-70">
