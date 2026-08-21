@@ -250,7 +250,7 @@ export default function ResumoScreen() {
       ) : (
         <View className="mt-6 items-center rounded-card border border-dashed border-ink-500 px-6 py-10">
           <Text className="text-center text-sm text-mist-300">
-            Nenhuma dívida vence neste mês.
+            Nenhuma conta vence neste mês.
           </Text>
         </View>
       )}

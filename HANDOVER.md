@@ -3,8 +3,11 @@
 Documento de contexto para agentes/pessoas que pegarem o projeto daqui.
 Responde ao prompt original de 4 fases e registra o que mudou no caminho.
 
-**Estado:** as 4 fases estão concluídas. O app roda, o APK é gerado localmente e
-está instalado num aparelho real. `main` está atualizada (commit `b437e1c`).
+**Estado:** as 4 fases estão concluídas e o modelo de dados passou por uma
+refatoração posterior (dívida virou *template* + *ocorrências* — veja a seção
+"O modelo de dados mudou"). O app roda, o APK é gerado localmente e está
+instalado num aparelho real, já com os dados financeiros reais do autor.
+`main` está atualizada (commit `111b353`).
 
 > Leia também o `README.md` (arquitetura, modelo de dados, como gerar o APK) e o
 > `AGENTS.md` (regras curtas do projeto). Este arquivo é o histórico e o "porquê".
@@ -32,6 +35,9 @@ Feito. Expo SDK 57 + expo-router + NativeWind (dark) + expo-sqlite.
 Tabelas `dividas`, `reservas`, `renda_mensal` criadas na migração 1, todas já com
 `workspace_id` e `owner_id` como o prompt pediu.
 
+> A tabela `dividas` desta fase **não existe mais na forma original**: a migração
+> 3 a reescreveu e criou `ocorrencias`. Veja "O modelo de dados mudou".
+
 **Desvio:** o prompt dava a opção "drizzle-orm ou queries diretas". Optei por
 **queries diretas**. Motivo: o schema é pequeno e estável, e drizzle traria uma
 camada de build/config a mais num projeto cujo requisito declarado era
@@ -43,7 +49,11 @@ Feito. Ordenação por vencimento/valor/nome/tipo, filtro por tipo, tela de Resu
 com renda do mês e saldo (sobra/falta) com destaque visual quando negativo.
 
 A regra de incidência (recorrente todo mês; parcelada enquanto há parcelas;
-pontual só no mês do vencimento) vive em `src/domain/mes.ts`, pura e testável.
+pontual só no mês do vencimento) vivia em `src/domain/mes.ts` como um cálculo.
+
+> **Mudou.** Com as ocorrências materializadas no banco, `calcularResumo` virou
+> uma **soma direta** das ocorrências do mês — não há mais incidência a deduzir.
+> A regra sobrevive só na geração (`ocorrenciasIniciais`, `garantirRecorrentesDoMes`).
 
 ### Fase 3 — Reservas e polimento ✅
 
@@ -72,6 +82,65 @@ Isso não é o padrão do Expo e tem uma consequência que precisa ficar clara:
 
 Motivo de versionar: a pasta carrega a configuração de assinatura de release, e
 o app precisa ser atualizável por cima nos celulares da família.
+
+---
+
+## O modelo de dados mudou (depois das 4 fases)
+
+O prompt original modelava dívida como **um registro com um valor fixo**. Isso
+não sobrevive ao uso real: a conta de luz muda todo mês, e uma parcelada de 6x
+não tem "um" vencimento. O modelo foi trocado por dois níveis:
+
+- **`dividas` — o template.** O que a dívida *é*: nome, tipo, categoria, e o
+  vencimento em forma de regra (`dia_vencimento` para recorrente,
+  `data_vencimento` para pontual/1ª parcela). **Não guarda valor.**
+- **`ocorrencias` — o que vence de fato.** Uma linha por vencimento, com valor
+  próprio, `status` (`pendente`/`paga`), `pago_em` e, quando parcelada,
+  `numero_parcela`/`total_parcelas`. FK para `dividas` com `ON DELETE CASCADE`.
+
+Quem gera o quê:
+
+| tipo | quando | o que gera |
+| --- | --- | --- |
+| `pontual` | no cadastro | 1 ocorrência com o valor cheio |
+| `parcelada` | no cadastro | N ocorrências, valor total dividido em centavos |
+| `recorrente` | ao abrir o mês | 1 por mês, com o valor da última ocorrência **paga** (ou 0 na primeira vez) |
+
+Consequências práticas:
+
+- A lista mostra **ocorrências**, não dívidas. Marcar como paga é um toque na
+  caixa, sem navegar; o item **não some** — fica esmaecido, riscado e no fim da
+  ordenação, para dar como desfazer um toque errado.
+- Editar o valor de uma ocorrência vale **só para aquele vencimento**. Os outros
+  meses continuam como estão. É isso que resolve a conta de luz.
+- Dividir em parcelas é feito em **centavos inteiros**, com a sobra na última
+  (`dividirEmCentavos`, em `src/domain/parcelas.ts`). R$ 100 em 3x vira
+  33,33 / 33,33 / **33,34** — nunca some nem sobra dinheiro.
+- `garantirRecorrentesDoMes` é **idempotente** (`WHERE NOT EXISTS`): roda a cada
+  foco das telas Dívidas e Resumo sem duplicar nada.
+
+### A migração 3 e a ordem que não pode mudar
+
+A migração 3 preserva os dados da Fase 1 e a **ordem das operações é a parte
+frágil**, documentada no topo de `src/data/db.ts`:
+
+1. lê o modelo antigo (com valor, `parcela_atual`, `parcela_total`);
+2. **reescreve** `dividas` (receita de rewrite de tabela do SQLite);
+3. **só então** cria `ocorrencias`;
+4. converte o que foi lido em ocorrências.
+
+Criar `ocorrencias` antes do passo 2 faz o `DROP TABLE dividas` falhar por causa
+da FK — e `PRAGMA foreign_keys` **é ignorado dentro de uma transação**, então não
+dá para simplesmente desligar a checagem.
+
+A conversão em si (`converterParaOcorrencias`) é uma função **pura** em
+`src/domain/divida.ts`, coberta por asserções: parcelada retroage as parcelas
+anteriores à atual já marcadas como pagas, recorrente vira uma ocorrência no mês
+corrente, pontual vira uma só.
+
+**Rodou contra dados reais** (7 dívidas do autor) e conferiu: os 4 recorrentes
+caíram no dia certo de agosto, as 3 parceladas vieram com as parcelas passadas
+pagas, e o Resumo bateu (Total R$ 2.002,00 / Pago R$ 353,00 / Falta R$ 1.649,00).
 
 ---
 
@@ -142,10 +211,16 @@ Como o `android/` é versionado e o `prebuild` não roda, os arquivos em
 `android/app/src/main/res/mipmap-*/` e `drawable-*/` foram gerados à mão a partir
 de `assets/logo/quitae-master-1024.png`. Se o logo mudar, precisam ser regerados.
 
-**O `versionCode` está em 1 e é manual.**
-Está fixo em `android/app/build.gradle`. O `version` do `app.json` **não**
-controla isso. Suba o número a cada APK distribuído — mandando dois APKs
-diferentes com o mesmo `versionCode`, alguns aparelhos recusam a atualização.
+**O `versionCode` é manual e mora em dois lugares.**
+Quem o Gradle lê é `android/app/build.gradle` (hoje `2` / `1.1.0`). O `app.json`
+ganhou `android.versionCode` espelhado só para um `prebuild` futuro não voltar ao
+número 1. Suba os dois a cada APK distribuído — mandando dois APKs diferentes com
+o mesmo `versionCode`, alguns aparelhos recusam a atualização.
+
+**FK em migração: a ordem importa e `PRAGMA foreign_keys` não salva.**
+Dentro de uma transação o SQLite ignora o pragma. Numa migração que reescreve uma
+tabela referenciada, crie a tabela que aponta para ela **depois** do rewrite.
+Detalhes na seção da migração 3.
 
 ---
 
@@ -168,12 +243,14 @@ Hoje há um `!android/app/debug.keystore` explícito.
 
 ## Estado atual e o que ficou de fora
 
-**Verificado em aparelho real** (moto g86 5G): app abre, migrações rodam, banco
-nasce zerado, renda com ponto decimal grava certo, dados persistem entre
-reinícios, launcher mostra "Quitaê" com o ícone novo.
+**Verificado em aparelho real** (moto g86 5G): app abre, migrações rodam
+(inclusive a 3, sobre dados reais, sem erro no logcat), renda com ponto decimal
+grava certo, dados persistem entre reinícios, launcher mostra "Quitaê" com o
+ícone novo. Marcar/desmarcar como paga funciona nos dois sentidos e a prévia de
+parcelas mostra `3x de R$ 33,33` com a nota da última em R$ 33,34.
 
 **Qualidade:** `npx tsc --noEmit`, `npm run lint` e `npm run verificar`
-(59 asserções de domínio, rodando em Node via tsx) — todos limpos.
+(71 asserções de domínio, rodando em Node via tsx) — todos limpos.
 
 **APK:** ~44 MB, só `arm64-v8a`. As outras três arquiteturas
 (`armeabi-v7a` e as duas `x86`, de emulador) levavam o arquivo a 114 MB sem
@@ -189,7 +266,8 @@ servir a nenhum aparelho real da família.
 
 ### Pendências conhecidas
 
-- **Subir o `versionCode`** antes de distribuir o próximo APK.
+- **Gerar o APK 1.1.0** com o novo modelo e instalar nos outros celulares. O
+  `versionCode` já está em `2`; o próximo precisa ser `3`.
 - **Backup de `android/app/release.keystore` e `android/keystore.properties`.**
   Nenhum dos dois está no git (correto). Perder qualquer um impede atualizar o
   app por cima — só desinstalando, o que apaga tudo.

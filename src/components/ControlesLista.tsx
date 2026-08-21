@@ -63,7 +63,7 @@ export function ControlesLista({
 
       <View className="mt-3 flex-row items-center justify-between">
         <Text className="text-xs text-mist-400">
-          {quantidade} {quantidade === 1 ? 'dívida' : 'dívidas'}
+          {quantidade} {quantidade === 1 ? 'conta' : 'contas'}
         </Text>
 
         <Pressable

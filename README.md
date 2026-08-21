@@ -192,18 +192,25 @@ ruim de mandar por WhatsApp. A lista fica em `reactNativeArchitectures`, no
 
 ### Antes de gerar uma versão nova: suba o `versionCode`
 
-Em `android/app/build.gradle`:
+Em `android/app/build.gradle` (o que o Gradle realmente lê):
 
 ```gradle
-versionCode 1        // incremente a cada APK que você for distribuir
-versionName "1.0.0"  // o que aparece para o usuário
+versionCode 2        // incremente a cada APK que você for distribuir
+versionName "1.1.0"  // o que aparece para o usuário
+```
+
+E espelhe em `app.json`, para que um `prebuild` futuro não volte ao número 1:
+
+```json
+"android": { "versionCode": 2 },
+"version": "1.1.0"
 ```
 
 O Android usa o `versionCode` para decidir o que é atualização. Mandando dois
 APKs diferentes com o mesmo número, o aparelho pode recusar a instalação por
 cima — e aí só resta desinstalar, o que **apaga todas as dívidas e reservas**.
-O `version` do `app.json` não controla isso: como o `android/` é versionado e
-não regenerado por `prebuild`, quem manda é o `build.gradle`.
+Como o `android/` é versionado e não regenerado por `prebuild`, quem manda no
+build do dia a dia é o `build.gradle`; o `app.json` é a rede de segurança.
 
 ### O identificador do app
 
