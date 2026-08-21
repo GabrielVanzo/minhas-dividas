@@ -55,3 +55,8 @@ android/keystore.properties
 # A de debug é exceção: como o /android é versionado, sem ela um clone novo
 # não consegue rodar `npm run android`. Ela é pública e igual para todo mundo.
 !android/app/debug.keystore
+
+# Pacotes de backup da chave — contêm o keystore e as senhas em claro.
+# Este arquivo é para sair da máquina para um cofre, nunca para o Git.
+quitae-assinatura-backup*.zip
+*-assinatura-backup*.zip
