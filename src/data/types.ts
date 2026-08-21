@@ -64,6 +64,12 @@ export interface OcorrenciaComDivida extends Ocorrencia {
   nome: string;
   tipo: TipoDivida;
   categoria: string | null;
+  /**
+   * Estimativa de recorrente num mês futuro, calculada na hora e **nunca
+   * gravada**. Sem linha no banco, não aceita ser paga nem editada.
+   * Ver `src/domain/projecao.ts`.
+   */
+  projetada?: boolean;
 }
 
 export type NovaOcorrencia = Omit<Ocorrencia, 'id' | 'workspaceId' | 'ownerId'>;

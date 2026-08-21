@@ -1,10 +1,17 @@
 import dayjs from 'dayjs';
-import { OcorrenciaComDivida, TipoDivida } from '@/data/types';
+import { Divida, OcorrenciaComDivida, TipoDivida } from '@/data/types';
 import { converterParaOcorrencias, ocorrenciasIniciais, vencimentoRecorrenteNoMes } from '@/domain/divida';
 import { formatarValorEditavel, parsearValor } from '@/domain/format';
-import { calcularResumo, rotuloMes } from '@/domain/mes';
+import {
+  calcularResumo,
+  deslocarMes,
+  distanciaEmMeses,
+  intervaloNavegavel,
+  rotuloMes,
+} from '@/domain/mes';
 import { descricaoPrazo, ordenarOcorrencias, situacaoOcorrencia } from '@/domain/ocorrencia';
 import { dividirEmCentavos, planejarParcelas } from '@/domain/parcelas';
+import { BaseRecorrente, ehProjecao, projetarRecorrentes } from '@/domain/projecao';
 
 const HOJE = dayjs('2026-08-20').startOf('day');
 
@@ -157,6 +164,75 @@ eq('conversão recorrente usa o dia do vencimento', convRec[0].data, '2026-08-10
 eq('conversão recorrente preserva o valor', convRec[0].valor, 120);
 
 eq('rótulo do mês em português', rotuloMes('2026-08'), 'Agosto de 2026');
+
+// --- navegação entre meses ---
+eq('desloca um mês para frente', deslocarMes('2026-08', 1), '2026-09');
+eq('desloca virando o ano', deslocarMes('2026-12', 1), '2027-01');
+eq('desloca para trás virando o ano', deslocarMes('2026-01', -2), '2025-11');
+eq('distância em meses', distanciaEmMeses('2026-08', '2026-11'), 3);
+eq('distância negativa para trás', distanciaEmMeses('2026-08', '2026-06'), -2);
+
+eq('sem parceladas, alcança 2 meses atrás e o mês seguinte',
+  intervaloNavegavel('2026-08', null), { primeiro: '2026-06', ultimo: '2026-09' });
+eq('parcelada em 6x estica o limite para frente',
+  intervaloNavegavel('2026-08', '2027-01'), { primeiro: '2026-06', ultimo: '2027-01' });
+eq('última parcela no passado não encolhe além do mês seguinte',
+  intervaloNavegavel('2026-08', '2026-03'), { primeiro: '2026-06', ultimo: '2026-09' });
+eq('limite para trás vira o ano',
+  intervaloNavegavel('2026-01', null).primeiro, '2025-11');
+
+// --- projeção de recorrentes em mês futuro ---
+function d(p: Partial<Divida>): Divida {
+  return {
+    id: p.id ?? 'd1',
+    workspaceId: 'local',
+    ownerId: 'me',
+    nome: p.nome ?? 'Luz',
+    tipo: 'recorrente',
+    categoria: p.categoria ?? null,
+    diaVencimento: p.diaVencimento ?? 10,
+    dataVencimento: null,
+    ativa: true,
+    criadoEm: '2026-01-01T00:00:00.000Z',
+  };
+}
+
+const bases: BaseRecorrente[] = [
+  { divida: d({ id: 'luz', nome: 'Luz', diaVencimento: 5 }), ultimoValor: 150 },
+  { divida: d({ id: 'aluguel', nome: 'Aluguel', diaVencimento: 10 }), ultimoValor: 1107 },
+];
+
+const proj = projetarRecorrentes(bases, '2026-10', []);
+eq('projeta uma ocorrência por recorrente', proj.length, 2);
+eq('projeção cai no dia do template', proj.map((x) => x.dataVencimento),
+  ['2026-10-05', '2026-10-10']);
+eq('projeção usa o último valor pago', proj.map((x) => x.valor), [150, 1107]);
+eq('projeção nasce pendente', proj.every((x) => x.status === 'pendente'), true);
+eq('projeção vem marcada', proj.every((x) => x.projetada === true), true);
+eq('id de projeção é reconhecível', proj.every((x) => ehProjecao(x.id)), true);
+eq('ids de projeção são únicos no mês', new Set(proj.map((x) => x.id)).size, 2);
+eq('mesma dívida em meses diferentes gera ids diferentes',
+  projetarRecorrentes(bases, '2026-11', [])[0].id !== proj[0].id, true);
+
+eq('ocorrência real no mês vence a projeção',
+  projetarRecorrentes(bases, '2026-10',
+    [o({ dividaId: 'luz', dataVencimento: '2026-10-05' })]).map((x) => x.dividaId),
+  ['aluguel']);
+
+eq('recorrente sem valor pago projeta zero',
+  projetarRecorrentes([{ divida: d({ id: 'nova' }), ultimoValor: 0 }], '2026-10', [])[0].valor, 0);
+
+eq('dia 31 clampa no mês curto',
+  projetarRecorrentes([{ divida: d({ id: 'x', diaVencimento: 31 }), ultimoValor: 10 }],
+    '2027-02', [])[0].dataVencimento, '2027-02-28');
+
+// resumo continua somando com as projeções dentro
+const comProjecao = calcularResumo(
+  [...projetarRecorrentes(bases, '2026-10', []),
+   o({ id: 'parc', dataVencimento: '2026-10-15', valor: 50, tipo: 'parcelada' })],
+  '2026-10', 3000);
+eq('total do mês futuro soma projeção + parcela', comProjecao.totalMes, 1307);
+eq('mês futuro não tem nada pago', comProjecao.pago, 0);
 
 // --- leitura de valor digitado ---
 eq('vírgula decimal', parsearValor('1234,56'), 1234.56);

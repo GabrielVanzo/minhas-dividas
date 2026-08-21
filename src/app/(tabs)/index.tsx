@@ -1,5 +1,5 @@
 import { useFocusEffect, useRouter } from 'expo-router';
-import { SearchX, WalletMinimal } from 'lucide-react-native';
+import { CalendarOff, SearchX, WalletMinimal } from 'lucide-react-native';
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,12 +8,15 @@ import { BotaoFlutuante } from '@/components/BotaoFlutuante';
 import { ControlesLista } from '@/components/ControlesLista';
 import { EmptyState } from '@/components/EmptyState';
 import { FolhaModal } from '@/components/FolhaModal';
+import { NavegadorMes } from '@/components/NavegadorMes';
 import { OcorrenciaCard } from '@/components/OcorrenciaCard';
 import { BotaoPrimario, Campo, EntradaTexto } from '@/components/form';
 import { Cores } from '@/constants/theme';
 import {
   atualizarValorOcorrencia,
   garantirRecorrentesDoMes,
+  limitesDeNavegacao,
+  listarMes,
   listarPainel,
   marcarPaga,
   marcarPendente,
@@ -21,12 +24,27 @@ import {
 import { obterPreferencia } from '@/data/preferenciasRepository';
 import { OcorrenciaComDivida, TipoDivida } from '@/data/types';
 import { formatarMoeda, formatarValorEditavel, parsearValor } from '@/domain/format';
-import { mesCorrente } from '@/domain/mes';
+import { intervaloNavegavel, IntervaloMeses, Mes, mesCorrente } from '@/domain/mes';
 import { CampoOrdenacao, ordenarOcorrencias } from '@/domain/ocorrencia';
+
+/**
+ * O mês corrente é o único que materializa recorrentes e que arrasta contas
+ * atrasadas de meses anteriores. Nos outros, a lista é só o que vence ali —
+ * com as recorrentes projetadas quando o mês ainda não chegou.
+ */
+async function carregarMes(mes: Mes): Promise<OcorrenciaComDivida[]> {
+  if (mes !== mesCorrente()) return listarMes(mes);
+  await garantirRecorrentesDoMes(mes);
+  return listarPainel(mes);
+}
 
 export default function DividasScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const [mes, setMes] = useState<Mes>(mesCorrente);
+  const [intervalo, setIntervalo] = useState<IntervaloMeses>(() =>
+    intervaloNavegavel(mesCorrente(), null),
+  );
   const [ocorrencias, setOcorrencias] = useState<OcorrenciaComDivida[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [ordenacao, setOrdenacao] = useState<CampoOrdenacao>('vencimento');
@@ -37,27 +55,30 @@ export default function DividasScreen() {
   const [emEdicao, setEmEdicao] = useState<OcorrenciaComDivida | null>(null);
   const [valorTexto, setValorTexto] = useState('');
 
-  const recarregar = useCallback(async () => {
-    const mes = mesCorrente();
-    // Abrir o mês é o gatilho que materializa as recorrentes dele.
-    await garantirRecorrentesDoMes(mes);
-    return listarPainel(mes);
+  const irPara = useCallback(async (destino: Mes) => {
+    setMes(destino);
+    setOcorrencias(await carregarMes(destino));
   }, []);
 
   useFocusEffect(
     useCallback(() => {
       let ativo = true;
-      Promise.all([recarregar(), obterPreferencia('nome_usuario')])
-        .then(([lista, nomeSalvo]) => {
+      // Volta sempre ao mês corrente ao reabrir a aba: ele é o foco do app.
+      const atual = mesCorrente();
+      setMes(atual);
+
+      Promise.all([carregarMes(atual), limitesDeNavegacao(), obterPreferencia('nome_usuario')])
+        .then(([lista, limites, nomeSalvo]) => {
           if (!ativo) return;
           setOcorrencias(lista);
+          setIntervalo(limites);
           setNome(nomeSalvo ?? '');
         })
         .finally(() => ativo && setCarregando(false));
       return () => {
         ativo = false;
       };
-    }, [recarregar]),
+    }, []),
   );
 
   // Lista vazia de tipos = sem filtro, mostra tudo.
@@ -77,15 +98,17 @@ export default function DividasScreen() {
   }, [visiveis]);
 
   async function alternarPago(ocorrencia: OcorrenciaComDivida) {
+    if (ocorrencia.projetada) return;
     if (ocorrencia.status === 'paga') {
       await marcarPendente(ocorrencia.id);
     } else {
       await marcarPaga(ocorrencia.id);
     }
-    setOcorrencias(await listarPainel(mesCorrente()));
+    setOcorrencias(await carregarMes(mes));
   }
 
   function abrirEdicaoValor(ocorrencia: OcorrenciaComDivida) {
+    if (ocorrencia.projetada) return;
     setEmEdicao(ocorrencia);
     setValorTexto(ocorrencia.valor > 0 ? formatarValorEditavel(ocorrencia.valor) : '');
   }
@@ -94,7 +117,7 @@ export default function DividasScreen() {
     if (!emEdicao) return;
     await atualizarValorOcorrencia(emEdicao.id, parsearValor(valorTexto));
     setEmEdicao(null);
-    setOcorrencias(await listarPainel(mesCorrente()));
+    setOcorrencias(await carregarMes(mes));
   }
 
   function alternarTipo(tipo: TipoDivida) {
@@ -111,7 +134,17 @@ export default function DividasScreen() {
     );
   }
 
+  const corrente = mesCorrente();
+  const futuro = mes > corrente;
+  const passado = mes < corrente;
   const semNenhuma = ocorrencias.length === 0;
+
+  const rotuloValor = futuro ? 'Previsto' : passado ? 'Ainda em aberto' : 'Falta pagar';
+  const rotuloVazio = futuro
+    ? 'Nada previsto para este mês'
+    : passado
+      ? 'Nada em aberto neste mês'
+      : 'Nada a pagar neste mês';
 
   return (
     <View className="flex-1 bg-ink-900">
@@ -136,8 +169,8 @@ export default function DividasScreen() {
 
               <Text className="mt-1 text-sm text-mist-300">
                 {resumo.quantidade === 0
-                  ? 'Nada a pagar neste mês'
-                  : `Falta pagar · ${resumo.quantidade} ${
+                  ? rotuloVazio
+                  : `${rotuloValor} · ${resumo.quantidade} ${
                       resumo.quantidade === 1 ? 'conta' : 'contas'
                     }`}
                 {resumo.pagas > 0
@@ -145,6 +178,8 @@ export default function DividasScreen() {
                   : ''}
               </Text>
             </View>
+
+            <NavegadorMes mes={mes} intervalo={intervalo} onMudar={irPara} />
 
             {semNenhuma ? null : (
               <ControlesLista
@@ -169,21 +204,29 @@ export default function DividasScreen() {
           />
         )}
         ListEmptyComponent={
-          semNenhuma ? (
-            <EmptyState
-              icone={WalletMinimal}
-              titulo="Tudo limpo por aqui"
-              descricao="Cadastre sua primeira dívida para acompanhar vencimentos e valores em um só lugar."
-              acaoRotulo="Cadastrar dívida"
-              onAcao={() => router.push('/divida/nova')}
-            />
-          ) : (
+          !semNenhuma ? (
             <EmptyState
               icone={SearchX}
               titulo="Nada com esse filtro"
               descricao="Nenhuma conta deste tipo vence no período."
               acaoRotulo="Limpar filtro"
               onAcao={() => setTipos([])}
+            />
+          ) : mes !== corrente ? (
+            <EmptyState
+              icone={CalendarOff}
+              titulo="Mês sem contas"
+              descricao="Nada vence neste mês."
+              acaoRotulo="Voltar para hoje"
+              onAcao={() => irPara(corrente)}
+            />
+          ) : (
+            <EmptyState
+              icone={WalletMinimal}
+              titulo="Tudo limpo por aqui"
+              descricao="Cadastre sua primeira dívida para acompanhar vencimentos e valores em um só lugar."
+              acaoRotulo="Cadastrar dívida"
+              onAcao={() => router.push('/divida/nova')}
             />
           )
         }

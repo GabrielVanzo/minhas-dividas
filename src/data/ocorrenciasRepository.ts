@@ -1,9 +1,12 @@
 import * as Crypto from 'expo-crypto';
 
 import { vencimentoRecorrenteNoMes } from '@/domain/divida';
+import { intervaloNavegavel, IntervaloMeses, mesCorrente } from '@/domain/mes';
 import { ParcelaPlanejada } from '@/domain/parcelas';
+import { BaseRecorrente, projetarRecorrentes } from '@/domain/projecao';
 
 import { getDatabase } from './db';
+import { DividaRow, toDivida } from './dividasRepository';
 import { Divida, Ocorrencia, OcorrenciaComDivida, OWNER_LOCAL, WORKSPACE_LOCAL } from './types';
 
 interface OcorrenciaRow {
@@ -80,6 +83,62 @@ export async function listarOcorrenciasDoMes(mes: string): Promise<OcorrenciaCom
     mes,
   );
   return rows.map(toOcorrencia);
+}
+
+/**
+ * A visão de um mês qualquer, para a navegação entre meses.
+ *
+ * Mês passado e mês corrente mostram só o que existe no banco — o que
+ * aconteceu, aconteceu. Mês futuro ganha por cima a projeção das recorrentes,
+ * senão o total do mês mentiria por omissão (apareceriam as parcelas, mas não
+ * o aluguel). A projeção não grava nada: ver `src/domain/projecao.ts`.
+ */
+export async function listarMes(mes: string): Promise<OcorrenciaComDivida[]> {
+  const reais = await listarOcorrenciasDoMes(mes);
+  if (mes <= mesCorrente()) return reais;
+
+  const projetadas = projetarRecorrentes(await basesDeProjecao(), mes, reais);
+  return [...reais, ...projetadas].sort((a, b) =>
+    a.dataVencimento.localeCompare(b.dataVencimento),
+  );
+}
+
+/** Recorrentes ativas com o último valor pago — insumo da projeção. */
+async function basesDeProjecao(): Promise<BaseRecorrente[]> {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<DividaRow & { ultimo_valor: number }>(
+    `SELECT d.*,
+            COALESCE((SELECT o.valor FROM ocorrencias o
+                      WHERE o.divida_id = d.id AND o.status = 'paga'
+                      ORDER BY o.data_vencimento DESC LIMIT 1), 0) AS ultimo_valor
+     FROM dividas d
+     WHERE d.workspace_id = ? AND d.owner_id = ?
+       AND d.tipo = 'recorrente' AND d.ativa = 1`,
+    WORKSPACE_LOCAL,
+    OWNER_LOCAL,
+  );
+
+  return rows.map((row) => ({ divida: toDivida(row), ultimoValor: row.ultimo_valor }));
+}
+
+/**
+ * Até onde a navegação entre meses pode ir.
+ *
+ * O limite para frente sai da última parcela/pontual cadastrada: uma compra em
+ * 6x precisa ser visível até o fim. Recorrentes ficam de fora do `MAX` de
+ * propósito — sendo infinitas, empurrariam o limite para sempre.
+ */
+export async function limitesDeNavegacao(): Promise<IntervaloMeses> {
+  const db = await getDatabase();
+  const row = await db.getFirstAsync<{ mes: string | null }>(
+    `SELECT MAX(substr(o.data_vencimento, 1, 7)) AS mes
+     FROM ocorrencias o JOIN dividas d ON d.id = o.divida_id
+     WHERE o.workspace_id = ? AND o.owner_id = ? AND d.ativa = 1
+       AND d.tipo <> 'recorrente'`,
+    WORKSPACE_LOCAL,
+    OWNER_LOCAL,
+  );
+  return intervaloNavegavel(mesCorrente(), row?.mes ?? null);
 }
 
 export async function listarOcorrenciasDaDivida(dividaId: string): Promise<Ocorrencia[]> {

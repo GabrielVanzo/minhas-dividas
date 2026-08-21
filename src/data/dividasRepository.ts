@@ -3,7 +3,7 @@ import * as Crypto from 'expo-crypto';
 import { getDatabase } from './db';
 import { Divida, NovaDivida, OWNER_LOCAL, TipoDivida, WORKSPACE_LOCAL } from './types';
 
-interface DividaRow {
+export interface DividaRow {
   id: string;
   workspace_id: string;
   owner_id: string;
@@ -16,7 +16,7 @@ interface DividaRow {
   criado_em: string;
 }
 
-function toDivida(row: DividaRow): Divida {
+export function toDivida(row: DividaRow): Divida {
   return {
     id: row.id,
     workspaceId: row.workspace_id,

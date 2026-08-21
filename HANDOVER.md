@@ -142,6 +142,26 @@ corrente, pontual vira uma só.
 caíram no dia certo de agosto, as 3 parceladas vieram com as parcelas passadas
 pagas, e o Resumo bateu (Total R$ 2.002,00 / Pago R$ 353,00 / Falta R$ 1.649,00).
 
+### Navegação entre meses (e por que futuro é previsão)
+
+O foco do app é o mês corrente, mas dá para andar 2 meses para trás e para
+frente até a última parcela cadastrada. **Recorrentes não decidem o limite para
+frente** — sendo infinitas, empurrariam para sempre; quem manda são as dívidas
+com fim. O mês seguinte é piso garantido.
+
+A decisão que vale registrar: **mês futuro não materializa recorrente**. Seria
+mais simples chamar `garantirRecorrentesDoMes` no mês visitado, mas isso grava
+linhas por causa de uma espiada e, pior, congela o valor de hoje num mês
+distante — quando dezembro chegasse, a linha já existiria e o valor da última
+conta paga em novembro seria ignorado. A heurística de valor morreria em
+silêncio.
+
+Em vez disso, `projetarRecorrentes` (`src/domain/projecao.ts`) calcula na hora,
+sem gravar. As projeções vêm com `projetada: true`, chip "Previsto", e sem ação
+de pagar ou editar valor — não existe linha para atualizar. Se algum dia houver
+necessidade de pagar adiantado num mês futuro, o caminho é materializar **aquela
+ocorrência específica** no momento do toque, não o mês inteiro na visita.
+
 ---
 
 ## Decisões que valem conhecer antes de mexer
@@ -212,7 +232,7 @@ Como o `android/` é versionado e o `prebuild` não roda, os arquivos em
 de `assets/logo/quitae-master-1024.png`. Se o logo mudar, precisam ser regerados.
 
 **O `versionCode` é manual e mora em dois lugares.**
-Quem o Gradle lê é `android/app/build.gradle` (hoje `2` / `1.1.0`). O `app.json`
+Quem o Gradle lê é `android/app/build.gradle` (hoje `3` / `1.2.0`). O `app.json`
 ganhou `android.versionCode` espelhado só para um `prebuild` futuro não voltar ao
 número 1. Suba os dois a cada APK distribuído — mandando dois APKs diferentes com
 o mesmo `versionCode`, alguns aparelhos recusam a atualização.
@@ -250,7 +270,7 @@ grava certo, dados persistem entre reinícios, launcher mostra "Quitaê" com o
 parcelas mostra `3x de R$ 33,33` com a nota da última em R$ 33,34.
 
 **Qualidade:** `npx tsc --noEmit`, `npm run lint` e `npm run verificar`
-(71 asserções de domínio, rodando em Node via tsx) — todos limpos.
+(96 asserções de domínio, rodando em Node via tsx) — todos limpos.
 
 **APK:** ~44 MB, só `arm64-v8a`. As outras três arquiteturas
 (`armeabi-v7a` e as duas `x86`, de emulador) levavam o arquivo a 114 MB sem
@@ -266,8 +286,8 @@ servir a nenhum aparelho real da família.
 
 ### Pendências conhecidas
 
-- **Gerar o APK 1.1.0** com o novo modelo e instalar nos outros celulares. O
-  `versionCode` já está em `2`; o próximo precisa ser `3`.
+- **Distribuir o APK 1.2.0** para os outros celulares. O `versionCode` já está
+  em `3`; o próximo precisa ser `4`.
 - **Backup de `android/app/release.keystore` e `android/keystore.properties`.**
   Nenhum dos dois está no git (correto). Perder qualquer um impede atualizar o
   app por cima — só desinstalando, o que apaga tudo.

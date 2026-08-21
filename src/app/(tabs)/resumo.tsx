@@ -4,25 +4,49 @@ import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { NavegadorMes } from '@/components/NavegadorMes';
 import { Cores } from '@/constants/theme';
 import {
   garantirRecorrentesDoMes,
-  listarOcorrenciasDoMes,
+  limitesDeNavegacao,
+  listarMes,
 } from '@/data/ocorrenciasRepository';
 import { definirRenda, obterRenda } from '@/data/rendaRepository';
 import { totalReservado } from '@/data/reservasRepository';
 import { OcorrenciaComDivida, TIPOS_DIVIDA } from '@/data/types';
 import { ROTULO_TIPO } from '@/domain/divida';
 import { formatarMoeda, formatarValorEditavel, parsearValor } from '@/domain/format';
-import { calcularResumo, mesCorrente, rotuloMes } from '@/domain/mes';
+import {
+  calcularResumo,
+  intervaloNavegavel,
+  IntervaloMeses,
+  Mes,
+  mesCorrente,
+} from '@/domain/mes';
+
+/** Só o mês corrente materializa recorrentes; os demais são leitura. */
+async function carregarMes(mes: Mes): Promise<OcorrenciaComDivida[]> {
+  if (mes === mesCorrente()) await garantirRecorrentesDoMes(mes);
+  return listarMes(mes);
+}
 
 export default function ResumoScreen() {
   const insets = useSafeAreaInsets();
-  const [mes, setMes] = useState(mesCorrente);
+  const [mes, setMes] = useState<Mes>(mesCorrente);
+  const [intervalo, setIntervalo] = useState<IntervaloMeses>(() =>
+    intervaloNavegavel(mesCorrente(), null),
+  );
   const [ocorrencias, setOcorrencias] = useState<OcorrenciaComDivida[]>([]);
   const [rendaTexto, setRendaTexto] = useState('');
   const [reservado, setReservado] = useState(0);
   const [carregando, setCarregando] = useState(true);
+
+  const irPara = useCallback(async (destino: Mes) => {
+    setMes(destino);
+    const [lista, renda] = await Promise.all([carregarMes(destino), obterRenda(destino)]);
+    setOcorrencias(lista);
+    setRendaTexto(renda ? formatarValorEditavel(renda.valor) : '');
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -31,13 +55,16 @@ export default function ResumoScreen() {
       const atual = mesCorrente();
       setMes(atual);
 
-      garantirRecorrentesDoMes(atual)
-        .then(() =>
-          Promise.all([listarOcorrenciasDoMes(atual), obterRenda(atual), totalReservado()]),
-        )
-        .then(([lista, renda, reservas]) => {
+      Promise.all([
+        carregarMes(atual),
+        limitesDeNavegacao(),
+        obterRenda(atual),
+        totalReservado(),
+      ])
+        .then(([lista, limites, renda, reservas]) => {
           if (!ativo) return;
           setOcorrencias(lista);
+          setIntervalo(limites);
           setRendaTexto(renda ? formatarValorEditavel(renda.valor) : '');
           setReservado(reservas);
         })
@@ -70,6 +97,7 @@ export default function ResumoScreen() {
   }
 
   const positivo = resumo.saldo >= 0;
+  const previstas = resumo.ocorrenciasDoMes.filter((o) => o.projetada).length;
   const comprometido = renda > 0 ? Math.min(resumo.totalMes / renda, 1) : 0;
   const progressoPago = resumo.totalMes > 0 ? resumo.pago / resumo.totalMes : 0;
 
@@ -82,10 +110,11 @@ export default function ResumoScreen() {
         paddingBottom: 40,
       }}
       keyboardShouldPersistTaps="handled">
-      <Text className="text-[13px] font-medium uppercase tracking-widest text-mist-400">
-        Resumo de
+      <Text className="mb-3 text-[13px] font-medium uppercase tracking-widest text-mist-400">
+        Resumo do mês
       </Text>
-      <Text className="mt-1 text-2xl font-bold text-mist-100">{rotuloMes(mes)}</Text>
+
+      <NavegadorMes mes={mes} intervalo={intervalo} onMudar={irPara} />
 
       {/* Renda */}
       <View className="mt-6 rounded-card border border-ink-500 bg-ink-700 p-4">
@@ -177,6 +206,13 @@ export default function ResumoScreen() {
             </Text>
           </View>
         ) : null}
+
+        {previstas > 0 ? (
+          <Text className="mt-3 border-t border-white/[0.07] pt-3 text-xs text-mist-300">
+            Inclui {previstas} {previstas === 1 ? 'recorrente prevista' : 'recorrentes previstas'}
+            {' '}pelo último valor pago. O número real só se firma quando o mês chegar.
+          </Text>
+        ) : null}
       </View>
 
       {/* Reservado — informativo, de propósito fora da conta do saldo */}
@@ -238,6 +274,7 @@ export default function ResumoScreen() {
                       ? ` · parcela ${ocorrencia.numeroParcela}/${ocorrencia.totalParcelas}`
                       : ''}
                     {ocorrencia.status === 'paga' ? ' · paga' : ''}
+                    {ocorrencia.projetada ? ' · previsto' : ''}
                   </Text>
                 </View>
                 <Text className="text-[15px] font-semibold text-mist-100">

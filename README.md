@@ -149,6 +149,37 @@ O Resumo mostra três números separados — **total do mês**, **já pago** e
 A Home mostra o mês corrente **mais** o que ficou pendente de meses anteriores:
 uma conta atrasada não pode sumir da vista só porque o mês virou.
 
+## Navegação entre meses
+
+Home e Resumo têm setas para andar no tempo. O mês corrente continua sendo o
+foco: as telas voltam para ele sempre que a aba é reaberta, e o atalho "Voltar
+para hoje" só aparece quando o usuário saiu dele.
+
+Os limites vêm de `intervaloNavegavel` (`src/domain/mes.ts`):
+
+- **Para trás:** 2 meses fixos. O bastante para achar uma conta esquecida sem
+  virar histórico infinito.
+- **Para frente:** até a última parcela ou pontual cadastrada — uma compra em 6x
+  fica visível até o fim. **Recorrentes não entram nessa conta:** por não terem
+  fim, empurrariam o limite para sempre. O mês seguinte é o piso, então sempre
+  dá para espiar o próximo mês.
+
+### Meses futuros mostram recorrentes como previsão
+
+Recorrente só vira linha no banco quando o mês abre — é isso que permite ao
+valor nascer da última ocorrência **paga**. Materializar meses futuros só porque
+o usuário passou os olhos congelaria o valor de hoje num mês distante e
+estragaria essa estimativa.
+
+Então um mês futuro é montado assim: pontuais e parcelas saem do banco (já
+nasceram no cadastro) e as recorrentes entram calculadas na hora por
+`projetarRecorrentes` (`src/domain/projecao.ts`), **sem gravar nada**. Elas vêm
+com `projetada: true`, aparecem com o chip "Previsto" e não aceitam ser marcadas
+como pagas nem ter o valor editado — não há linha para atualizar. Se o mês já
+tiver uma ocorrência real daquela dívida, o dado gravado ganha da projeção.
+
+Meses passados não recebem projeção nenhuma: o que aconteceu, aconteceu.
+
 ## Gerando o APK
 
 O build é **100% local**. Não usa conta EAS, paga ou gratuita.
@@ -195,15 +226,15 @@ ruim de mandar por WhatsApp. A lista fica em `reactNativeArchitectures`, no
 Em `android/app/build.gradle` (o que o Gradle realmente lê):
 
 ```gradle
-versionCode 2        // incremente a cada APK que você for distribuir
-versionName "1.1.0"  // o que aparece para o usuário
+versionCode 3        // incremente a cada APK que você for distribuir
+versionName "1.2.0"  // o que aparece para o usuário
 ```
 
 E espelhe em `app.json`, para que um `prebuild` futuro não volte ao número 1:
 
 ```json
-"android": { "versionCode": 2 },
-"version": "1.1.0"
+"android": { "versionCode": 3 },
+"version": "1.2.0"
 ```
 
 O Android usa o `versionCode` para decidir o que é atualização. Mandando dois
