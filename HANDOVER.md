@@ -232,10 +232,20 @@ Como o `android/` é versionado e o `prebuild` não roda, os arquivos em
 de `assets/logo/quitae-master-1024.png`. Se o logo mudar, precisam ser regerados.
 
 **O `versionCode` é manual e mora em dois lugares.**
-Quem o Gradle lê é `android/app/build.gradle` (hoje `3` / `1.2.0`). O `app.json`
+Quem o Gradle lê é `android/app/build.gradle` (hoje `4` / `1.2.1`). O `app.json`
 ganhou `android.versionCode` espelhado só para um `prebuild` futuro não voltar ao
 número 1. Suba os dois a cada APK distribuído — mandando dois APKs diferentes com
 o mesmo `versionCode`, alguns aparelhos recusam a atualização.
+
+**`adjustResize` não cobre `Modal` nem edge-to-edge.**
+O AndroidManifest tem `windowSoftInputMode="adjustResize"`, mas ele não resolve
+os dois casos do app: um `Modal` abre em janela própria (a Activity é que é
+redimensionada, não ele), e com `edgeToEdgeEnabled` — padrão do Expo 57 — o
+sistema deixou de redimensionar a janela em geral. O `KeyboardAvoidingView` com
+`behavior` indefinido no Android, que era o que estava lá, não fazia nada: o
+teclado cobria o campo e o usuário digitava às cegas. A saída foi consumir o
+inset na mão (`src/hooks/useAlturaTeclado.ts`), usada pelo `FolhaModal` e pelo
+`DividaForm`.
 
 **FK em migração: a ordem importa e `PRAGMA foreign_keys` não salva.**
 Dentro de uma transação o SQLite ignora o pragma. Numa migração que reescreve uma
@@ -286,8 +296,11 @@ servir a nenhum aparelho real da família.
 
 ### Pendências conhecidas
 
-- **Distribuir o APK 1.2.0** para os outros celulares. O `versionCode` já está
-  em `3`; o próximo precisa ser `4`.
+- **Distribuir o APK 1.2.1** para os outros celulares. O `versionCode` já está
+  em `4`; o próximo precisa ser `5`.
+- **Confirmar no aparelho** que a folha modal e o formulário sobem com o
+  teclado — o comportamento de inset com edge-to-edge não dá para verificar
+  fora do dispositivo.
 - **Backup de `android/app/release.keystore` e `android/keystore.properties`.**
   Nenhum dos dois está no git (correto). Perder qualquer um impede atualizar o
   app por cima — só desinstalando, o que apaga tudo.

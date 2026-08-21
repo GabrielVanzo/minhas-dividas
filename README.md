@@ -226,15 +226,15 @@ ruim de mandar por WhatsApp. A lista fica em `reactNativeArchitectures`, no
 Em `android/app/build.gradle` (o que o Gradle realmente lê):
 
 ```gradle
-versionCode 3        // incremente a cada APK que você for distribuir
-versionName "1.2.0"  // o que aparece para o usuário
+versionCode 4        // incremente a cada APK que você for distribuir
+versionName "1.2.1"  // o que aparece para o usuário
 ```
 
 E espelhe em `app.json`, para que um `prebuild` futuro não volte ao número 1:
 
 ```json
-"android": { "versionCode": 3 },
-"version": "1.2.0"
+"android": { "versionCode": 4 },
+"version": "1.2.1"
 ```
 
 O Android usa o `versionCode` para decidir o que é atualização. Mandando dois

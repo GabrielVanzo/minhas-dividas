@@ -4,8 +4,6 @@ import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
   ScrollView,
   Text,
@@ -36,6 +34,7 @@ import {
 import { NovaDivida, TipoDivida } from '@/data/types';
 import { ocorrenciasIniciais, ROTULO_TIPO } from '@/domain/divida';
 import { formatarMoeda, parsearValor } from '@/domain/format';
+import { espacoInferior, useAlturaTeclado } from '@/hooks/useAlturaTeclado';
 import { dividirEmCentavos } from '@/domain/parcelas';
 
 const OPCOES_TIPO = (['recorrente', 'parcelada', 'pontual'] as TipoDivida[]).map((tipo) => ({
@@ -69,6 +68,7 @@ type Erros = Partial<Record<keyof Estado, string>>;
 export function DividaForm({ dividaId }: { dividaId?: string }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const teclado = useAlturaTeclado();
   const [estado, setEstado] = useState<Estado>(ESTADO_INICIAL);
   const [erros, setErros] = useState<Erros>({});
   const [categorias, setCategorias] = useState<string[]>([]);
@@ -226,11 +226,14 @@ export function DividaForm({ dividaId }: { dividaId?: string }) {
   }
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      className="flex-1 bg-ink-900">
+    <View className="flex-1 bg-ink-900">
       <ScrollView
-        contentContainerStyle={{ padding: 20, paddingBottom: insets.bottom + 40 }}
+        contentContainerStyle={{
+          padding: 20,
+          // Espaço para o teclado: com edge-to-edge o sistema não redimensiona
+          // mais a janela, então o rodapé do formulário ficaria coberto.
+          paddingBottom: espacoInferior(teclado, insets.bottom, 40),
+        }}
         keyboardShouldPersistTaps="handled">
         <Campo rotulo="Tipo">
           <SeletorOpcoes
@@ -399,7 +402,7 @@ export function DividaForm({ dividaId }: { dividaId?: string }) {
           </Pressable>
         ) : null}
       </ScrollView>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 

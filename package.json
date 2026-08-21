@@ -1,7 +1,7 @@
 {
   "name": "quitae",
   "main": "expo-router/entry",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "dependencies": {
     "@react-native-community/datetimepicker": "9.1.0",
     "dayjs": "^1.11.23",
