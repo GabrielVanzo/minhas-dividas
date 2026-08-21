@@ -1,6 +1,8 @@
 # Quitaê — contexto para agentes
 
-App Expo SDK 57 offline-first. Leia o `README.md` para arquitetura e modelo de dados.
+App Expo SDK 57 offline-first. Leia o `README.md` para arquitetura e modelo de
+dados, e o `HANDOVER.md` para o histórico das decisões e as armadilhas já
+encontradas (cache do autolinking, splash do Android 12+, versionCode).
 
 ## Regras do projeto
 
